@@ -1,0 +1,14 @@
+# Render: бесплатный веб-сервис из Docker
+services:
+  - type: web
+    name: galaktika-mlechny-put
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://0.0.0.0:8080

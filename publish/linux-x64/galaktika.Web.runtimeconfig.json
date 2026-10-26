@@ -1,0 +1,21 @@
+{
+  "runtimeOptions": {
+    "tfm": "net11.0",
+    "includedFrameworks": [
+      {
+        "name": "Microsoft.NETCore.App",
+        "version": "11.0.0-rc.2.26504.105"
+      },
+      {
+        "name": "Microsoft.AspNetCore.App",
+        "version": "11.0.0-rc.2.26504.105"
+      }
+    ],
+    "configProperties": {
+      "System.GC.Server": true,
+      "System.Reflection.Metadata.MetadataUpdater.IsSupported": false,
+      "System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization": false,
+      "Microsoft.AspNetCore.Components.Endpoints.NavigationManager.DisableThrowNavigationException": true
+    }
+  }
+}

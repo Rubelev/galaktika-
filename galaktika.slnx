@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="galaktika.ApiService/galaktika.ApiService.csproj" />
+  <Project Path="galaktika.AppHost/galaktika.AppHost.csproj" />
+  <Project Path="galaktika.ServiceDefaults/galaktika.ServiceDefaults.csproj" />
+  <Project Path="galaktika.Web/galaktika.Web.csproj" />
+</Solution>

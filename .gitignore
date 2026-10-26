@@ -1,0 +1,14 @@
+bin/
+obj/
+publish/win-x64/
+node_modules/
+*.zip
+docs/
+tools/
+*.bat
+smoke-test.ps1
+project_dump.md
+project_dump.txt
+*.crdownload
+*.lnk
+*.log

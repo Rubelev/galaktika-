@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+**/.git/
+**/node_modules/
+**/publish/
+**/*.zip
+docs/
+tools/
+*.bat
+smoke-test.ps1

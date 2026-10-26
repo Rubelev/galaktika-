@@ -1,0 +1,11 @@
+@galaktika.ApiService_HostAddress = http://localhost:5213
+
+GET {{galaktika.ApiService_HostAddress}}/openapi/v1.json
+Accept: application/json
+
+###
+
+GET {{galaktika.ApiService_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

@@ -1,0 +1,10 @@
+﻿[
+  {
+    "Email": "ab@btema.ru",
+    "Salt": "G7nepsKwJNQ\u002BVeGMAEZQ1A==",
+    "Hash": "HsPC25ttyF1GAgmRkJLzXztRvpiyUYLa9DI82K7Eq1o=",
+    "Profile": "{\u0022lastName\u0022:\u0022\\u0411\\u0443\\u043B\\u0430\\u0442\\u043E\\u0432 \\u0410\\u043B\\u0435\\u043A\\u0441\\u0435\\u0439 \\u042E\\u0440\\u044C\\u0435\\u0432\\u0438\\u0447\u0022,\u0022gameName\u0022:\u0022Rubelev\u0022,\u0022faction\u0022:\u0022earth\u0022}",
+    "Role": "admin",
+    "Created": "2026-10-26T15:22:31.3250705Z"
+  }
+]

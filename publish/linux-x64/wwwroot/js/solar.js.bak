@@ -1,0 +1,408 @@
+﻿// =========================================================
+// ГЛОБАЛЬНЫЙ ФЛАГ ОТЛАДКИ
+// =========================================================
+const DEBUG_MODE = false; 
+
+function dbgLog(node, message, data = null) {
+    if (!DEBUG_MODE) return;
+    const timestamp = new Date().toLocaleTimeString('ru-RU', { hour12: false }) + '.' + new Date().getMilliseconds();
+    if (data) {
+        console.log(`🛠️ [DEBUG] [${timestamp}] [${node}] ${message}`, data);
+    } else {
+        console.log(`🛠️ [DEBUG] [${timestamp}] [${node}] ${message}`);
+    }
+}
+
+let currentUser = JSON.parse(localStorage.getItem('galaktika_user')) || null;
+let usersDB = JSON.parse(localStorage.getItem('galaktika_users')) || [];
+const ADMIN_EMAIL = "ab@btema.ru";
+let slideTimer = null;
+let selectedFaction = null;
+
+const FACTION_NAMES = { earth: "🌍 Терра Нова", mars: "🔴 Мир Тишины", asteroid: "💫 Титановое Кольцо" };
+const RESOURCE_INFO = {
+    water: { name: "Вода", icon: "💧", unit: "л" }, food: { name: "Продукты", icon: "🍖", unit: "кг" },
+    metals: { name: "Металлы", icon: "⚙️", unit: "т" }, crystals: { name: "Кристаллы", icon: "💎", unit: "кг" }
+};
+
+function initUsersDB() {
+    let startTime = performance.now();
+    // Инициализация админа
+    if (!usersDB.find(u => u.email === ADMIN_EMAIL)) {
+        usersDB.push({ 
+            lastName: "Булатов Алексей Юрьевич", email: ADMIN_EMAIL, gameName: "Rubelev", role: "admin", 
+            password: "Docent1973Docenr", faction: "earth", hasSeenLegend: true,
+            resources: { water: 100000, food: 50000, metals: 500, crystals: 200 },
+            fleet: { transport: 5, recycler: 3, assault: 2, fighter: 10, cruiser: 1, super_cruiser: 0, colonizer: 1 },
+            questProgress: { step: 0 }
+        });
+    }
+    // Принудительно обновляем пароль админа, если он уже есть
+    const admin = usersDB.find(u => u.email === ADMIN_EMAIL);
+    if (admin) admin.password = "Docent1973Docenr";
+
+    // Инициализация тестовых
+    const testFactions = ["earth", "mars", "asteroid"];
+    const testResources = [
+        { water: 100000, food: 50000, metals: 500, crystals: 200 },
+        { water: 100, food: 1000, metals: 2000, crystals: 50000 },
+        { water: 500, food: 100, metals: 100000, crystals: 5000 }
+    ];
+    const testFleets = [
+        { transport: 5, recycler: 3, assault: 2, fighter: 10, cruiser: 1, super_cruiser: 0, colonizer: 1 },
+        { transport: 3, recycler: 2, assault: 5, fighter: 5, cruiser: 2, super_cruiser: 1, colonizer: 1 },
+        { transport: 8, recycler: 10, assault: 8, fighter: 15, cruiser: 3, super_cruiser: 0, colonizer: 1 }
+    ];
+    ['test1@test.ru', 'test2@test.ru', 'test3@test.ru'].forEach((email, i) => {
+        if (!usersDB.find(u => u.email === email)) {
+            usersDB.push({ 
+                lastName: `Тестов Тест${i+1}`, email: email, gameName: `Test${i+1}`, role: "user", 
+                password: email, faction: testFactions[i], hasSeenLegend: true,
+                resources: testResources[i], fleet: testFleets[i], questProgress: { step: 0 }
+            });
+        } else {
+            const u = usersDB.find(x => x.email === email);
+            u.password = email; // Принудительно обновляем пароль
+        }
+    });
+    localStorage.setItem('galaktika_users', JSON.stringify(usersDB));
+    dbgLog('DATABASE', 'User DB initialized', { time: (performance.now() - startTime).toFixed(2) + 'ms', users: usersDB.length });
+}
+initUsersDB();
+
+function saveUser() {
+    localStorage.setItem('galaktika_user', JSON.stringify(currentUser));
+    const idx = usersDB.findIndex(u => u.email === currentUser.email);
+    if (idx !== -1) { usersDB[idx] = currentUser; localStorage.setItem('galaktika_users', JSON.stringify(usersDB)); }
+}
+
+// === ИНТЕРФЕЙС ===
+window.showWelcomeScreen = () => { document.getElementById('welcome-screen').style.display = 'block'; document.getElementById('auth-form-login').style.display = 'none'; document.getElementById('auth-form-register').style.display = 'none'; };
+window.showLoginForm = () => { document.getElementById('welcome-screen').style.display = 'none'; document.getElementById('auth-form-login').style.display = 'block'; document.getElementById('auth-form-register').style.display = 'none'; };
+window.showRegisterForm = () => { document.getElementById('welcome-screen').style.display = 'none'; document.getElementById('auth-form-login').style.display = 'none'; document.getElementById('auth-form-register').style.display = 'block'; selectedFaction = null; document.querySelectorAll('.faction-card').forEach(c => c.classList.remove('selected')); };
+window.selectFaction = (faction) => { selectedFaction = faction; document.querySelectorAll('.faction-card').forEach(c => c.classList.remove('selected')); const card = document.querySelector(`.faction-card[data-faction="${faction}"]`); if (card) card.classList.add('selected'); dbgLog('AUTH', 'Faction selected', faction); };
+
+window.login = () => {
+    const email = document.getElementById('login-email').value.trim(); const password = document.getElementById('login-password').value;
+    if (!email || !password) { alert("Введите Email и пароль!"); return; }
+    const user = usersDB.find(u => u.email === email);
+    if (!user) { alert("Пользователь не найден!"); return; }
+    if (user.password !== password) { alert("Неверный пароль!"); return; }
+    
+    currentUser = user; saveUser(); updateAuthUI(); window.solarReset();
+    if (!currentUser.hasSeenLegend) startLegend();
+};
+
+window.register = () => {
+    const lastName = document.getElementById('reg-name').value.trim(); const email = document.getElementById('reg-email').value.trim();
+    const gameName = document.getElementById('reg-game').value.trim(); const password = document.getElementById('reg-password').value;
+    const passwordConfirm = document.getElementById('reg-password-confirm').value;
+    if (!lastName || !email || !gameName || !password) { alert("Заполните все поля!"); return; }
+    if (password.length < 4) { alert("Пароль должен быть не менее 4 символов!"); return; }
+    if (password !== passwordConfirm) { alert("Пароли не совпадают!"); return; }
+    if (!selectedFaction) { alert("Выберите свою цивилизацию!"); return; }
+    if (usersDB.find(u => u.email === email)) { alert("Этот Email уже занят!"); return; }
+    
+    const factionDefaults = {
+        earth: { water: 100000, food: 50000, metals: 500, crystals: 200 },
+        mars: { water: 100, food: 1000, metals: 2000, crystals: 50000 },
+        asteroid: { water: 500, food: 100, metals: 100000, crystals: 5000 }
+    };
+    const newUser = { 
+        lastName, email, gameName, role: "user", password, faction: selectedFaction, hasSeenLegend: false,
+        resources: factionDefaults[selectedFaction], fleet: { transport: 3, recycler: 2, assault: 1, fighter: 5, cruiser: 1, super_cruiser: 0, colonizer: 0 }, questProgress: { step: 0 }
+    };
+    usersDB.push(newUser); localStorage.setItem('galaktika_users', JSON.stringify(usersDB));
+    currentUser = newUser; saveUser(); updateAuthUI(); window.solarReset(); startLegend();
+};
+
+window.logout = () => { currentUser = null; localStorage.removeItem('galaktika_user'); showWelcomeScreen(); updateAuthUI(); };
+
+function updateAuthUI() {
+    const overlay = document.getElementById('auth-overlay'); const timeControl = document.getElementById('time-control-panel');
+    const adminBtn = document.getElementById('admin-btn'); const userInfo = document.getElementById('user-info');
+    const userFaction = document.getElementById('user-faction'); const leftMenu = document.getElementById('left-menu');
+    const controlPanel = document.getElementById('control-panel-container'); const solarContainer = document.querySelector('.solar-system-container');
+    if (currentUser) {
+        overlay.style.display = 'none'; userInfo.innerText = currentUser.gameName;
+        if (userFaction) userFaction.innerText = currentUser.faction ? FACTION_NAMES[currentUser.faction] : '';
+        leftMenu.style.display = 'flex'; controlPanel.style.display = 'block'; solarContainer.style.visibility = 'visible';
+        if (currentUser.role === 'admin') { timeControl.style.display = 'flex'; adminBtn.style.display = 'block'; } 
+        else { timeControl.style.display = 'none'; adminBtn.style.display = 'none'; }
+    } else { 
+        overlay.style.display = 'flex'; timeControl.style.display = 'none'; adminBtn.style.display = 'none'; userInfo.innerText = ''; 
+        if (userFaction) userFaction.innerText = ''; leftMenu.style.display = 'none'; controlPanel.style.display = 'none'; solarContainer.style.visibility = 'hidden'; showWelcomeScreen();
+    }
+}
+
+// === ЛЕГЕНДА ===
+window.startLegend = () => {
+    const overlay = document.getElementById('legend-overlay'); if (!overlay) return;
+    overlay.style.display = 'flex'; showSlide(0); startLegendProgress();
+};
+function showSlide(index) { const slides = document.querySelectorAll('.legend-slide'); slides.forEach(s => s.classList.remove('active')); if (slides[index]) slides[index].classList.add('active'); }
+function startLegendProgress() {
+    const slides = document.querySelectorAll('.legend-slide'); const totalSlides = slides.length;
+    const slideDuration = 6000; const totalDuration = totalSlides * slideDuration;
+    const progressBar = document.getElementById('legend-progress-bar'); if (!progressBar) return;
+    progressBar.style.transition = 'none'; progressBar.style.width = '0%';
+    setTimeout(() => { progressBar.style.transition = `width ${totalDuration}ms linear`; progressBar.style.width = '100%'; }, 100);
+    let slideIndex = 0; if (slideTimer) clearInterval(slideTimer);
+    slideTimer = setInterval(() => {
+        slideIndex++;
+        if (slideIndex >= totalSlides) { clearInterval(slideTimer); endLegend(); return; }
+        showSlide(slideIndex);
+    }, slideDuration);
+}
+window.skipLegend = () => { if (slideTimer) clearInterval(slideTimer); endLegend(); };
+function endLegend() {
+    const overlay = document.getElementById('legend-overlay'); if (overlay) overlay.style.display = 'none';
+    if (currentUser) { currentUser.hasSeenLegend = true; saveUser(); }
+    updateAuthUI();
+}
+
+// === ЗВЕЗДЫ ===
+const starCanvas = document.getElementById('starfield-canvas'); const starCtx = starCanvas.getContext('2d');
+starCanvas.width = 6000; starCanvas.height = 6000; const stars = []; const nebulas = [ { x: 3500, y: 3300, r: 400, color: 'rgba(255, 100, 100, 0.15)' }, { x: 2200, y: 2600, r: 600, color: 'rgba(100, 100, 255, 0.15)' } ];
+function initStars() { if (stars.length > 0) return; for (let i = 0; i < 6000; i++) { stars.push({ x: Math.random() * 6000, y: Math.random() * 6000, r: Math.random() * 2.5 + 0.5, alpha: Math.random() * 0.8 + 0.2, color: Math.random() < 0.2 ? '#aaccff' : (Math.random() < 0.1 ? '#ffccaa' : '#ffffff') }); } }
+function drawStars() {
+    if (!starCtx) return; starCtx.clearRect(0, 0, 6000, 6000);
+    nebulas.forEach(n => { const gradient = starCtx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r); gradient.addColorStop(0, n.color); gradient.addColorStop(1, 'transparent'); starCtx.fillStyle = gradient; starCtx.beginPath(); starCtx.arc(n.x, n.y, n.r, 0, Math.PI * 2); starCtx.fill(); });
+    stars.forEach(s => { starCtx.beginPath(); starCtx.arc(s.x, s.y, s.r, 0, Math.PI * 2); starCtx.fillStyle = s.color; starCtx.globalAlpha = s.alpha; starCtx.fill(); });
+    starCtx.globalAlpha = 1.0;
+}
+initStars();
+
+// === АСТЕРОИДЫ ===
+const canvas = document.getElementById('asteroid-canvas'); const ctx = canvas.getContext('2d'); let asteroids = [];
+window.initAsteroids = (json) => { asteroids = JSON.parse(json); animateAsteroids(); };
+function animateAsteroids() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.save(); ctx.translate(canvas.width / 2, canvas.height / 2);
+    const epoch = Date.UTC(2000, 0, 1, 12, 0, 0); const currentDays = (simulatedTime - epoch) / 86400000;
+    asteroids.forEach(ast => {
+        const angle = (ast.Epoch + (currentDays / ast.Period) * 360) % 360; const rad = angle * Math.PI / 180; const inclRad = ast.I * Math.PI / 180;
+        const r = ast.A * (1 - ast.E * ast.E) / (1 + ast.E * Math.cos(rad)); const rPx = 235 + (r - 2.1) / 1.2 * 55;
+        const x = Math.cos(rad) * rPx; const y = Math.sin(rad) * Math.cos(inclRad) * rPx;
+        ctx.beginPath(); ctx.arc(x, y, 1.5, 0, Math.PI * 2); ctx.fillStyle = `rgba(150, 140, 130, 0.6)`; ctx.fill();
+    });
+    ctx.restore(); requestAnimationFrame(animateAsteroids);
+}
+
+// === КАМЕРА ===
+let scale = 0.5, posX = 0, posY = 0, rotX = 0, rotZ = 0;
+window.updateSolarTransform = () => {
+    const el = document.querySelector('.solar-system');
+    if (el) { el.style.transform = `translate(${posX}px, ${posY}px) scale(${scale}) rotateX(${rotX}deg) rotateZ(${rotZ}deg)`; el.style.setProperty('--rot-x', rotX + 'deg'); el.style.setProperty('--rot-z', rotZ + 'deg'); const slider = document.getElementById('tilt-slider'); if (slider) slider.value = rotX; }
+    const txt = document.getElementById('scale-text'); if (txt) txt.innerText = scale.toFixed(1) + 'x';
+    if (starCanvas) { starCanvas.style.transform = `translate(-50%, -50%) translate(${posX * 0.2}px, ${posY * 0.2}px) rotateX(${rotX * 0.2}deg) rotateZ(${rotZ * 0.2}deg) scale(1.5)`; }
+};
+window.moveView = (dir) => { const step = 10; if (dir === 'up') rotX = Math.max(rotX - step, -85); if (dir === 'down') rotX = Math.min(rotX + step, 85); if (dir === 'left') rotZ -= step; if (dir === 'right') rotZ += step; window.updateSolarTransform(); };
+window.updateTilt = (val) => { rotX = parseFloat(val); window.updateSolarTransform(); };
+window.solarZoomIn = () => { scale = Math.min(scale + 0.2, 10.0); window.updateSolarTransform(); };
+window.solarZoomOut = () => { scale = Math.max(scale - 0.2, 0.4); window.updateSolarTransform(); };
+window.solarReset = () => { scale = 0.5; posX = 0; posY = 0; rotX = 0; rotZ = 0; window.updateSolarTransform(); };
+
+let isDragging = false, startX, startY;
+window.addEventListener('mousedown', (e) => { if (e.target.closest('.control-panel') || e.target.closest('.auth-container') || e.target.closest('.legend-overlay') || e.target.closest('.left-menu') || e.target.closest('.codex-modal') || e.target.closest('.admin-modal') || e.target.closest('.fleet-modal') || e.target.closest('.quest-modal')) return; isDragging = true; startX = e.clientX - posX; startY = e.clientY - posY; document.body.style.cursor = 'grabbing'; });
+window.addEventListener('mousemove', (e) => { if (!isDragging) return; posX = e.clientX - startX; posY = e.clientY - startY; window.updateSolarTransform(); });
+window.addEventListener('mouseup', () => { isDragging = false; document.body.style.cursor = 'default'; });
+window.addEventListener('wheel', (e) => { if (e.target.closest('.control-panel') || e.target.closest('.legend-overlay')) return; e.preventDefault(); if (e.deltaY < 0) scale = Math.min(scale + 0.1, 10.0); else scale = Math.max(scale - 0.1, 0.1); window.updateSolarTransform(); }, { passive: false });
+
+// === ВРЕМЯ ===
+let timeScale = 1.0;
+let simulatedTime = Date.now();
+let lastRealTime = Date.now();
+
+window.setTimeMode = (mode) => {
+    let scaleValue = 1;
+    if (mode === 'hour') scaleValue = 3600;
+    if (mode === 'day') scaleValue = 86400;
+    if (mode === 'year') scaleValue = 31557600;
+    timeScale = scaleValue;
+    document.getElementById('time-scale').value = scaleValue;
+};
+
+window.applyTimeScale = () => {
+    const input = document.getElementById('time-scale');
+    let val = parseFloat(input.value);
+    if (isNaN(val) || val <= 0) val = 1;
+    timeScale = val;
+};
+
+window.resetToRealTime = () => {
+    timeScale = 1.0;
+    simulatedTime = Date.now();
+    document.getElementById('time-scale').value = "1";
+};
+
+// === ЧАТ ===
+window.toggleLeftMenu = () => { const menu = document.getElementById('left-menu'); const chat = document.getElementById('chat-panel'); const res = document.getElementById('resources-panel'); if (chat.style.display === 'flex' || res.style.display === 'flex') return; menu.classList.toggle('collapsed'); };
+window.openChat = () => { document.getElementById('left-menu-items').style.display = 'none'; document.getElementById('chat-panel').style.display = 'flex'; };
+window.closeChat = () => { document.getElementById('left-menu-items').style.display = 'flex'; document.getElementById('chat-panel').style.display = 'none'; };
+window.sendMessage = () => { const input = document.getElementById('chat-input'); const text = input.value.trim(); if (!text) return; const msgBox = document.getElementById('chat-messages'); const msg = document.createElement('div'); msg.className = 'chat-msg my-msg'; msg.innerText = `${currentUser ? currentUser.gameName : 'Гость'}: ${text}`; msgBox.appendChild(msg); msgBox.scrollTop = msgBox.scrollHeight; input.value = ''; };
+
+// === РЕСУРСЫ ===
+window.openResourcesPanel = () => { document.getElementById('left-menu-items').style.display = 'none'; document.getElementById('resources-panel').style.display = 'flex'; renderResourcesPanel(); };
+window.closeResourcesPanel = () => { document.getElementById('left-menu-items').style.display = 'flex'; document.getElementById('resources-panel').style.display = 'none'; };
+function renderResourcesPanel() { if (!currentUser || !currentUser.resources) return; const list = document.getElementById('resources-list'); list.innerHTML = ''; Object.keys(RESOURCE_INFO).forEach(key => { const info = RESOURCE_INFO[key]; const amount = currentUser.resources[key] || 0; const el = document.createElement('div'); el.className = 'resource-item'; el.innerHTML = `<div class="resource-icon">${info.icon}</div><div class="resource-details"><div class="resource-name">${info.name}</div><div class="resource-amount">${amount.toLocaleString()} <span class="resource-unit">${info.unit}</span></div></div>`; list.appendChild(el); }); }
+
+// === СПРАВОЧНИК ===
+window.openCodex = () => { document.getElementById('codex-modal').style.display = 'flex'; showLoreTab('earth'); };
+window.closeCodex = () => { document.getElementById('codex-modal').style.display = 'none'; };
+window.showLoreTab = (factionId) => {
+    document.querySelectorAll('.codex-tab').forEach(t => t.classList.remove('active'));
+    const activeTab = document.querySelector(`.codex-tab[data-tab="${factionId}"]`); if (activeTab) activeTab.classList.add('active');
+    const body = document.getElementById('codex-body');
+    if (factionId === 'resources') { if (!currentUser || !currentUser.resources) { body.innerHTML = '<p style="color:#ff6b6b;">Войдите в игру, чтобы увидеть свои ресурсы.</p>'; return; } body.innerHTML = `<div class="codex-header" style="border-color: #8ab4f8;"><div class="codex-title" style="color: #8ab4f8;">📦 Ресурсы колонии</div><div class="codex-subtitle">${FACTION_NAMES[currentUser.faction]}</div></div><div class="codex-section"><p>Здесь хранятся ресурсы вашей колонии. В будущем вы сможете обменивать их на межпланетной бирже.</p></div><div class="codex-economy-grid" style="grid-template-columns: 1fr 1fr;">${Object.keys(RESOURCE_INFO).map(key => { const res = currentUser.resources[key] || 0; const info = RESOURCE_INFO[key]; return `<div class="codex-economy-card"><h3>${info.icon} ${info.name}</h3><div style="font-size: 28px; font-weight: bold; margin-top: 10px;">${res.toLocaleString()}</div><div style="font-size: 12px; color:#888;">${info.unit}</div></div>`; }).join('')}</div>`; return; }
+    if (factionId === 'portal') { const p = window.PORTAL_LORE; body.innerHTML = `<div class="codex-header" style="border-color: #00e5ff;"><div class="codex-title" style="color: #00e5ff;">${p.name}</div><div class="codex-subtitle">${p.subtitle}</div><div class="codex-tagline">${p.location}</div></div><div class="codex-section"><h3>📜 История открытия</h3><p>${p.history}</p></div><div class="codex-section"><h3>⚙️ Технология</h3><p>${p.technology}</p></div><div class="codex-section codex-trade" style="border-color: rgba(0, 229, 255, 0.3); background: rgba(0, 229, 255, 0.05);"><div><b>📍 Расположение:</b> ${p.location}</div><div><b>🗓️ Год открытия:</b> ${p.discovered}</div></div><div class="codex-section"><h3>⚠️ Опасность</h3><p>${p.danger}</p></div><div class="codex-section"><h3>🌌 Текущее состояние</h3><p>${p.current}</p></div><div class="codex-quote" style="border-color: #00e5ff;">${p.quote}</div>`; return; }
+    if (factionId === 'captain') { const c = window.CAPTAIN_LORE; body.innerHTML = `<div class="codex-header" style="border-color: #f1c40f;"><div class="codex-title" style="color: #f1c40f;">🎖️ ${c.rank}</div><div class="codex-subtitle">${c.subtitle}</div></div><div class="codex-section"><h3>📜 История</h3><p>${c.history}</p></div><div class="codex-section"><h3>🎯 Миссия</h3><p>${c.mission}</p></div><div class="codex-section"><h3>💼 Навыки</h3><div style="display:flex; gap:8px; flex-wrap:wrap;">${c.skills.map(s => `<span style="background: rgba(241, 196, 15, 0.2); color:#f1c40f; padding:6px 12px; border-radius:20px; font-size:13px;">${s}</span>`).join('')}</div></div>`; return; }
+    const lore = window.GALAXY_LORE[factionId]; if (!lore) return;
+    body.innerHTML = `<div class="codex-header" style="border-color: ${lore.color};"><div class="codex-title" style="color: ${lore.color};">${lore.name}</div><div class="codex-subtitle">${lore.subtitle}</div><div class="codex-tagline">${lore.tagline}</div></div><div class="codex-section"><h3>📜 История</h3><p>${lore.history}</p></div><div class="codex-section codex-economy-grid"><div class="codex-economy-card deficit"><h3 style="color:#ff6b6b;">⚠️ Дефицит</h3><ul>${lore.deficit.map(d => `<li>${d}</li>`).join('')}</ul></div><div class="codex-economy-card surplus"><h3 style="color:#2ecc71;">💎 Избыток</h3><ul>${lore.surplus.map(s => `<li>${s}</li>`).join('')}</ul></div></div><div class="codex-section codex-trade"><div><b>📤 Экспорт:</b> ${lore.exports}</div><div><b>📥 Импорт:</b> ${lore.imports}</div><div><b>💰 Валюта:</b> ${lore.currency}</div></div><div class="codex-quote" style="border-color: ${lore.color};">${lore.quote}</div>`;
+};
+
+// === АДМИНКА ===
+window.openAdminModal = () => { document.getElementById('admin-modal').style.display = 'flex'; renderAdminPanel(); };
+window.closeAdminModal = () => { document.getElementById('admin-modal').style.display = 'none'; };
+function renderAdminPanel() { 
+    const list = document.getElementById('user-list-modal'); list.innerHTML = ''; 
+    usersDB.forEach(u => { 
+        if (u.email === ADMIN_EMAIL) return; 
+        const factionLabel = u.faction ? FACTION_NAMES[u.faction] : '—'; 
+        const li = document.createElement('li'); 
+        li.innerHTML = `<div><b>${u.gameName}</b> <span style="color:#8ab4f8; font-size:11px;">${factionLabel}</span></div>
+                        <div>
+                            <button onclick="changeUserPassword('${u.email}')" style="color:#f1c40f; cursor:pointer; background:none; border:none; font-size:12px; margin-right:10px;">Сменить пароль</button>
+                            <button onclick="deleteUser('${u.email}')" style="color:red; cursor:pointer; background:none; border:none; font-size:16px;">✖</button>
+                        </div>`; 
+        list.appendChild(li); 
+    }); 
+}
+window.changeUserPassword = (email) => {
+    const newPass = prompt(`Введите новый пароль для ${email}:`);
+    if (newPass && newPass.trim() !== "") {
+        const user = usersDB.find(u => u.email === email);
+        if (user) { user.password = newPass.trim(); localStorage.setItem('galaktika_users', JSON.stringify(usersDB)); alert("Пароль успешно изменен!"); }
+    }
+};
+window.deleteUser = (email) => { usersDB = usersDB.filter(u => u.email !== email); localStorage.setItem('galaktika_users', JSON.stringify(usersDB)); renderAdminPanel(); };
+
+// === ФЛОТ ===
+window.openFleet = () => { if (!currentUser) return; document.getElementById('fleet-modal').style.display = 'flex'; document.getElementById('fleet-faction-name').innerText = FACTION_NAMES[currentUser.faction] || ''; renderFleet(); };
+window.closeFleet = () => { document.getElementById('fleet-modal').style.display = 'none'; };
+function renderFleet() {
+    const body = document.getElementById('fleet-body'); const fleet = window.FLEET_DATA[currentUser.faction]; const userFleet = currentUser.fleet || {};
+    if (!fleet) { body.innerHTML = '<p>Флот недоступен.</p>'; return; }
+    body.innerHTML = '';
+    fleet.ships.forEach(ship => {
+        const classInfo = window.FLEET_CLASSES[ship.class] || { label: ship.class, color: '#888' };
+        const owned = userFleet[ship.class] !== undefined ? userFleet[ship.class] : ship.count;
+        const card = document.createElement('div'); const isColonizer = ship.class === 'colonizer';
+        card.className = 'fleet-card' + (isColonizer ? ' colonizer-card' : ''); card.style.borderColor = classInfo.color + '66';
+        card.innerHTML = `<div class="fleet-card-header" style="background: linear-gradient(135deg, ${classInfo.color}22, transparent);"><div class="fleet-icon">${ship.icon}</div><div><div class="fleet-class" style="color: ${classInfo.color};">${classInfo.label}</div><div class="fleet-name">${ship.name}</div></div></div><div class="fleet-desc">${ship.desc}</div><div class="fleet-stats">${ship.stats}</div><div class="fleet-count"><span style="color:#8ab4f8;">В наличии:</span><b>${owned}</b></div>`;
+        body.appendChild(card);
+    });
+}
+
+// === КВЕСТЫ ===
+window.openQuests = () => { if (!currentUser) return; document.getElementById('quest-modal').style.display = 'flex'; renderQuest(); };
+window.closeQuests = () => { document.getElementById('quest-modal').style.display = 'none'; };
+function renderQuest() {
+    const body = document.getElementById('quest-body'); const quest = window.QUEST_DATA[currentUser.faction]; const progress = currentUser.questProgress || { step: 0 };
+    if (!quest) { body.innerHTML = '<p>Квесты недоступны.</p>'; return; }
+    let html = `<div class="quest-header"><h3>${quest.title}</h3><p>${quest.desc}</p></div><div class="quest-steps"><div class="quest-step ${progress.step >= 1 ? 'completed' : (progress.step === 0 ? 'active' : '')}"><div class="step-num">1</div><div class="step-info"><b>Купить ${quest.buyItemName}</b> у фракции <i>${quest.buyFrom}</i><div class="step-cost">Цена: ${quest.buyCostAmount} ${RESOURCE_INFO[quest.buyCost].name}</div></div>${progress.step === 0 ? `<button class="auth-btn" style="width:auto; padding: 8px 15px; margin:0;" onclick="doQuestBuy()">Купить</button>` : ''}</div><div class="quest-step ${progress.step >= 2 ? 'completed' : (progress.step === 1 ? 'active' : '')}"><div class="step-num">2</div><div class="step-info"><b>Доставить груз</b> в <i>${quest.sellTo}</i><div class="step-cost">В трюме: ${quest.buyAmount} ${quest.buyItemName}</div></div>${progress.step === 1 ? `<button class="auth-btn" style="width:auto; padding: 8px 15px; margin:0;" onclick="doQuestDeliver()">Доставить</button>` : ''}</div><div class="quest-step ${progress.step >= 3 ? 'completed' : (progress.step === 2 ? 'active' : '')}"><div class="step-num">3</div><div class="step-info"><b>Продать ${quest.buyItemName}</b> покупателю<div class="step-cost">Доход: ${quest.sellPriceAmount} ${RESOURCE_INFO[quest.sellPrice].name}</div></div>${progress.step === 2 ? `<button class="auth-btn" style="width:auto; padding: 8px 15px; margin:0; background:#2ecc71;" onclick="doQuestSell()">Продать</button>` : ''}</div></div>`;
+    if (progress.step >= 3) html += `<div class="quest-reward"><h3>🎉 Квест выполнен!</h3><p>Вы получили: <b>${quest.reward}</b></p></div>`;
+    body.innerHTML = html;
+}
+window.doQuestBuy = () => { const quest = window.QUEST_DATA[currentUser.faction]; if (!currentUser.resources[quest.buyCost] || currentUser.resources[quest.buyCost] < quest.buyCostAmount) { alert(`Недостаточно ресурсов! Нужно ${quest.buyCostAmount} ${RESOURCE_INFO[quest.buyCost].name}`); return; } currentUser.resources[quest.buyCost] -= quest.buyCostAmount; currentUser.questProgress = { step: 1 }; saveUser(); renderQuest(); renderResourcesPanel(); };
+window.doQuestDeliver = () => { currentUser.questProgress = { step: 2 }; saveUser(); renderQuest(); };
+window.doQuestSell = () => { const quest = window.QUEST_DATA[currentUser.faction]; currentUser.resources[quest.sellPrice] = (currentUser.resources[quest.sellPrice] || 0) + quest.sellPriceAmount; if (currentUser.faction === 'earth') { currentUser.resources.metals += 1000; currentUser.resources.food += 5000; } else if (currentUser.faction === 'mars') { currentUser.resources.crystals += 10000; currentUser.resources.water += 500; } else { currentUser.resources.metals += 5000; currentUser.resources.water += 1000; } currentUser.questProgress = { step: 3 }; saveUser(); renderQuest(); renderResourcesPanel(); alert(`Квест выполнен! Вы получили ${quest.reward}`); };
+
+// === ВРЕМЯ НА ЭКРАНЕ ===
+setInterval(() => { const simDate = new Date(); const timeEl = document.getElementById('live-time'); if (timeEl) timeEl.innerText = simDate.toLocaleTimeString('ru-RU'); const dateEl = document.getElementById('live-date'); if (dateEl) dateEl.innerText = simDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }); }, 1000);
+
+// === ОСНОВНОЙ ЦИКЛ АНИМАЦИИ (JS) ===
+function calculateAngles(currentDays) {
+    document.querySelectorAll('.orbit').forEach(el => {
+        const period = parseFloat(el.dataset.period);
+        const epochAngle = parseFloat(el.dataset.epoch);
+        if (isNaN(period) || isNaN(epochAngle)) return;
+        
+        const angle = (epochAngle + (currentDays / period) * 360) % 360;
+        const rad = angle * Math.PI / 180;
+        const radius = el.offsetWidth / 2;
+        const x = Math.cos(rad) * radius;
+        const y = Math.sin(rad) * radius;
+        
+        const wrapper = el.querySelector('.planet-wrapper');
+        if (wrapper) wrapper.style.transform = `translate(${x}px, ${y}px)`;
+        
+        const planet = el.querySelector('.planet');
+        if (planet) {
+            const visualAngle = (angle + rotZ) * Math.PI / 180;
+            const lx = 50 + Math.cos(visualAngle) * 50;
+            const ly = 50 + Math.sin(visualAngle) * 50;
+            const shadow = planet.querySelector('.planet-shadow');
+            if (shadow) shadow.style.background = `radial-gradient(circle at ${lx}% ${ly}%, transparent 10%, rgba(0,0,0,0.85) 75%)`;
+            
+            const rotPeriodHours = parseFloat(planet.dataset.rotPeriod);
+            if (rotPeriodHours) {
+                const rotationDegrees = (currentDays * 24 / rotPeriodHours) * 360;
+                const surface = planet.querySelector('.planet-surface');
+                if (surface) {
+                    const bgPos = (rotationDegrees % 360) / 360 * 100;
+                    surface.style.backgroundPositionX = `${bgPos}%`;
+                }
+            }
+        }
+    });
+
+    document.querySelectorAll('.moon-orbit').forEach(el => {
+        const moon = el.querySelector('.moon');
+        if (!moon) return;
+        
+        const period = parseFloat(moon.dataset.period);
+        const epochAngle = parseFloat(moon.dataset.epoch);
+        if (isNaN(period) || isNaN(epochAngle)) return;
+
+        const angle = (epochAngle + (currentDays / period) * 360) % 360;
+        el.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
+        
+        moon.style.setProperty('--moon-angle', angle + 'deg');
+        
+        const parentPlanet = el.closest('.planet');
+        if (parentPlanet) {
+            const parentShadow = parentPlanet.querySelector('.planet-shadow');
+            const moonShadow = moon.querySelector('.moon-shadow');
+            if (parentShadow && moonShadow) moonShadow.style.background = parentShadow.style.background;
+        }
+    });
+}
+
+function animate() {
+    const now = Date.now();
+    const realDelta = now - lastRealTime;
+    lastRealTime = now;
+    
+    // Учитываем ускорение времени!
+    simulatedTime += realDelta * timeScale;
+    
+    const epoch = Date.UTC(2000, 0, 1, 12, 0, 0);
+    const currentDays = (simulatedTime - epoch) / 86400000;
+    calculateAngles(currentDays);
+    requestAnimationFrame(animate);
+}
+
+// === ИНИЦИАЛИЗАЦИЯ ===
+document.addEventListener('DOMContentLoaded', () => {
+    initStars(); drawStars();
+    const urlParams = new URLSearchParams(window.location.search); const autoLoginEmail = urlParams.get('login'); const doLogout = urlParams.get('logout');
+    if (doLogout === 'true') { currentUser = null; localStorage.removeItem('galaktika_user'); window.history.replaceState({}, document.title, window.location.pathname); }
+    else if (autoLoginEmail) { const user = usersDB.find(u => u.email === autoLoginEmail); if (user) { currentUser = user; saveUser(); } window.history.replaceState({}, document.title, window.location.pathname); }
+    updateAuthUI();
+    if (currentUser && !currentUser.hasSeenLegend) startLegend();
+    requestAnimationFrame(animate);
+});
+
+
+
+

@@ -1,0 +1,127 @@
+﻿@page "/"
+@using System.Text.Json
+@inject IJSRuntime JS
+<PageTitle>@GetLocalizedTitle()</PageTitle>
+
+<div id="legend-overlay" class="legend-overlay">
+    <div class="legend-content">
+        <div class="legend-slide" data-slide="1"><div class="slide-year">2226</div><div class="slide-title">Двести лет спустя</div><div class="slide-text">Человечество разделилось на три цивилизации. Три пути. Три взгляда на будущее.</div></div>
+        <div class="legend-slide" data-slide="2"><div class="slide-title" style="color:#2ecc71;">🌍 Терра Нова</div><div class="slide-subtitle">Земля • Мегаполис</div><div class="slide-text">Пока другие боролись за воздух и ресурсы, Земля выбрала путь возрождения.</div></div>
+        <div class="legend-slide" data-slide="3"><div class="slide-title" style="color:#e74c3c;">🔴 Мир Тишины</div><div class="slide-subtitle">Марс • Silentium</div><div class="slide-text">Под полярными льдами Марса построили город абсолютной тишины.</div></div>
+        <div class="legend-slide" data-slide="4"><div class="slide-title" style="color:#f39c12;">💫 Титановое Кольцо</div><div class="slide-subtitle">Пояс астероидов • Церера</div><div class="slide-text">На крупнейшем астероиде выросла столица индустрии.</div></div>
+        <div class="legend-slide" data-slide="5"><div class="slide-title" style="color:#00e5ff;">🌀 Врата Атлантов</div><div class="slide-subtitle">Орбита Плутона • Край системы</div><div class="slide-text">На краю Солнечной системы висит кольцо, созданное неизвестной цивилизацией.</div></div>
+        <div class="legend-slide" data-slide="6"><div class="slide-title">Твоя миссия</div><div class="slide-text">Ты — капитан, выпускник Университета Космической Экспансии.</div></div>
+    </div>
+    <div class="legend-progress"><div class="legend-progress-bar" id="legend-progress-bar"></div></div>
+    <button class="legend-skip" onclick="skipLegend()">Пропустить вступление →</button>
+</div>
+
+<div id="auth-overlay" class="auth-overlay" style="display:none;">
+    <div class="auth-container" id="welcome-screen">
+        <h1 class="auth-title">@GetLocalizedWelcome()</h1>
+        <button class="btn-large-green" onclick="showRegisterForm()">Зарегистрироваться</button>
+        <button class="btn-large-blue" onclick="showLoginForm()">Войти</button>
+    </div>
+    <div class="auth-container" id="auth-form-login" style="display: none;">
+        <h2>Вход в игру</h2>
+        <input type="email" id="login-email" placeholder="Ваш E-mail" class="auth-input">
+        <input type="password" id="login-password" placeholder="Пароль" class="auth-input">
+        <button class="auth-btn" onclick="login()">Войти</button>
+        <button class="auth-link-btn" onclick="showWelcomeScreen()">← Назад</button>
+    </div>
+    <div class="auth-container register-container" id="auth-form-register" style="display: none;">
+        <h2>Регистрация</h2>
+        <input type="text" id="reg-name" placeholder="Фамилия Имя" class="auth-input">
+        <input type="email" id="reg-email" placeholder="E-mail" class="auth-input">
+        <input type="text" id="reg-game" placeholder="Игровое имя" class="auth-input">
+        <input type="password" id="reg-password" placeholder="Пароль" class="auth-input">
+        <input type="password" id="reg-password-confirm" placeholder="Повтор пароля" class="auth-input">
+        <div class="faction-selector">
+            <p class="faction-label">Выберите свою цивилизацию:</p>
+            <div class="faction-cards">
+                <div class="faction-card" data-faction="earth" onclick="selectFaction('earth')"><div class="faction-icon">🌍</div><div class="faction-name">Терра Нова</div></div>
+                <div class="faction-card" data-faction="mars" onclick="selectFaction('mars')"><div class="faction-icon">🔴</div><div class="faction-name">Мир Тишины</div></div>
+                <div class="faction-card" data-faction="asteroid" onclick="selectFaction('asteroid')"><div class="faction-icon">💫</div><div class="faction-name">Титановое Кольцо</div></div>
+            </div>
+        </div>
+        <button class="auth-btn" onclick="register()">Создать аккаунт</button>
+        <button class="auth-link-btn" onclick="showWelcomeScreen()">← Назад</button>
+    </div>
+</div>
+
+<div id="left-menu" class="left-menu" style="display:none;">
+    <button class="menu-toggle" onclick="toggleLeftMenu()">☰</button>
+    <div id="left-menu-items" class="menu-items">
+        <button onclick="startLegend()" class="menu-btn">📜 История</button>
+        <button onclick="openQuests()" class="menu-btn">📜 Квесты</button>
+        <button onclick="openCodex()" class="menu-btn">📖 Справочник</button>
+        <button onclick="openFleet()" class="menu-btn">🚀 Флот</button>
+        <button onclick="openChat()" class="menu-btn">💬 Чат</button>
+        <button onclick="openResourcesPanel()" class="menu-btn">📦 Ресурсы</button>
+        <button id="admin-btn" onclick="openAdminModal()" class="menu-btn" style="display:none; color:#2ecc71;">⚙️ Админка</button>
+    </div>
+    <div id="chat-panel" class="chat-panel">
+        <div class="chat-header"><button onclick="closeChat()" class="back-btn">← Назад</button><span>Чат</span></div>
+        <div id="chat-messages" class="chat-messages"></div>
+        <div class="chat-input-area"><input type="text" id="chat-input" placeholder="Сообщение..." onkeypress="if(event.key === 'Enter') sendMessage()"><button onclick="sendMessage()">▶</button></div>
+    </div>
+    <div id="resources-panel" class="resources-panel" style="display:none;">
+        <div class="chat-header"><button onclick="closeResourcesPanel()" class="back-btn">← Назад</button><span>Склад колонии</span></div>
+        <div id="resources-list" class="resources-list"></div>
+    </div>
+</div>
+
+<div id="admin-modal" class="admin-modal"><div class="admin-modal-content"><span class="close-btn" onclick="closeAdminModal()">&times;</span><h2>Панель Администратора</h2><ul id="user-list-modal" class="user-list-modal"></ul></div></div>
+<div id="fleet-modal" class="fleet-modal" style="display:none;"><div class="fleet-modal-content"><span class="close-btn" onclick="closeFleet()">&times;</span><h2>🚀 Космический флот <span id="fleet-faction-name" style="font-size:16px; color:#8ab4f8;"></span></h2><div id="fleet-body" class="fleet-body"></div></div></div>
+<div id="quest-modal" class="quest-modal" style="display:none;"><div class="quest-modal-content"><span class="close-btn" onclick="closeQuests()">&times;</span><h2>📜 Журнал заданий</h2><div id="quest-body" class="quest-body"></div></div></div>
+<div id="codex-modal" class="codex-modal" style="display:none;"><div class="codex-modal-content"><span class="close-btn" onclick="closeCodex()">&times;</span><h2>📖 Справочник 2226</h2><div class="codex-tabs"><button class="codex-tab active" onclick="showLoreTab('earth')" data-tab="earth">🌍 Земля</button><button class="codex-tab" onclick="showLoreTab('mars')" data-tab="mars">🔴 Марс</button><button class="codex-tab" onclick="showLoreTab('asteroid')" data-tab="asteroid">💫 Пояс</button><button class="codex-tab" onclick="showLoreTab('resources')" data-tab="resources">📦 Мои ресурсы</button><button class="codex-tab" onclick="showLoreTab('portal')" data-tab="portal">🌀 Портал</button><button class="codex-tab" onclick="showLoreTab('captain')" data-tab="captain">🎖️ Капитан</button></div><div id="codex-body" class="codex-body"></div></div></div>
+
+<div id="control-panel-container" style="display:none;">
+    <div class="control-panel">
+        <div class="datetime-box"><div class="datetime-date" id="live-date"></div><div class="datetime-time" id="live-time"></div><div id="user-info" style="font-size: 16px; font-weight: bold; color: #2ecc71; margin-top: 5px;"></div><div id="user-faction" style="font-size: 12px; color: #8ab4f8; margin-top: 2px;"></div><div class="title">@GetLocalizedTitle()</div><button onclick="logout()" style="margin-top:8px; background:none; border:none; color:#ff6b6b; cursor:pointer; font-size:12px; text-decoration: underline;">Выйти</button></div>
+        <div class="time-control" id="time-control-panel" style="display: none;"><div style="display:flex; gap:4px; margin-bottom:8px;"><button class="mode-btn" onclick="setTimeMode('real')">1x</button><button class="mode-btn" onclick="setTimeMode('hour')">1ч</button><button class="mode-btn" onclick="setTimeMode('day')">1д</button><button class="mode-btn" onclick="setTimeMode('year')">1г</button></div><div style="display:flex; gap:6px; align-items:center;"><input type="number" id="time-scale" value="1" min="0.1" max="31557600" /><button class="action-btn apply-btn" onclick="applyTimeScale()">Применить</button><button class="action-btn reset-btn" onclick="resetToRealTime()">Сейчас</button></div></div>
+        <div class="nav-controls"><div class="d-pad"><button class="d-btn up" onclick="moveView('up')">▲</button><button class="d-btn left" onclick="moveView('left')">◀</button><button class="d-btn center" onclick="solarReset()">•</button><button class="d-btn right" onclick="moveView('right')">▶</button><button class="d-btn down" onclick="moveView('down')">▼</button></div><div class="zoom-controls"><div class="tilt-row"><input type="range" id="tilt-slider" min="-85" max="85" value="0" oninput="updateTilt(this.value)"></div><div class="zoom-row"><button type="button" class="zoom-btn" onclick="solarZoomOut()">-</button><div class="zoom-btn zoom-text" id="scale-text">1.0x</div><button type="button" class="zoom-btn" onclick="solarZoomIn()">+</button></div></div></div>
+    </div>
+</div>
+
+<div class="solar-system-container" style="visibility:hidden;">
+    <canvas id="starfield-canvas"></canvas>
+    <div class="solar-system">
+        <canvas id="asteroid-canvas" width="2000" height="2000"></canvas>
+        <div class="sun"><div class="tooltip">Солнце</div></div>
+        <div class="orbit earth-orbit" data-period="365.256363" data-epoch="@earthAngle.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)"><div class="planet-wrapper"><div class="planet earth" data-rot-period="23.934"><div class="planet-surface"><div class="tooltip">Земля</div></div><div class="planet-shadow"></div><div class="moon-system"><div class="moon-orbit" style="width: 60px; height: 60px;"><div class="moon" data-period="27.321661" data-epoch="218.32" style="background-image: url('/images/moon.jpg'); width: 8px; height: 8px;"><div class="moon-shadow"></div><div class="tooltip">Луна</div></div></div></div></div></div></div>
+        <div class="orbit mars-orbit" data-period="686.98" data-epoch="@marsAngle.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)"><div class="planet-wrapper"><div class="planet mars" data-rot-period="24.622"><div class="planet-surface"><div class="tooltip">Марс</div></div><div class="planet-shadow"></div><div class="moon-system"><div class="moon-orbit" style="width: 40px; height: 40px;"><div class="moon" data-period="0.3189" data-epoch="35.0" style="background-image: url('/images/phobos.jpg'); width: 4px; height: 4px;"><div class="moon-shadow"></div><div class="tooltip">Фобос</div></div></div><div class="moon-orbit" style="width: 55px; height: 55px;"><div class="moon" data-period="1.2624" data-epoch="120.0" style="background-image: url('/images/deimos.jpg'); width: 3px; height: 3px;"><div class="moon-shadow"></div><div class="tooltip">Деймос</div></div></div></div></div></div></div>
+        <div class="orbit jupiter-orbit" data-period="4332.589" data-epoch="@jupiterAngle.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)"><div class="planet-wrapper"><div class="planet jupiter" data-rot-period="9.925"><div class="planet-surface"><div class="tooltip">Юпитер</div></div><div class="planet-shadow"></div>
+<div class="moon-system">
+    <div class="moon-orbit" style="width: 90px; height: 90px;"><div class="moon" data-period="1.769" data-epoch="10" style="background-color: #e8d5b7; width: 6px; height: 6px;"><div class="moon-shadow"></div><div class="tooltip">Ио</div></div></div>
+    <div class="moon-orbit" style="width: 120px; height: 120px;"><div class="moon" data-period="3.551" data-epoch="85" style="background-color: #c9b8a0; width: 5px; height: 5px;"><div class="moon-shadow"></div><div class="tooltip">Европа</div></div></div>
+    <div class="moon-orbit" style="width: 150px; height: 150px;"><div class="moon" data-period="7.155" data-epoch="160" style="background-color: #a89f91; width: 8px; height: 8px;"><div class="moon-shadow"></div><div class="tooltip">Ганимед</div></div></div>
+    <div class="moon-orbit" style="width: 180px; height: 180px;"><div class="moon" data-period="16.689" data-epoch="250" style="background-color: #8c8273; width: 7px; height: 7px;"><div class="moon-shadow"></div><div class="tooltip">Каллисто</div></div></div>
+</div></div></div></div>
+        <div class="orbit saturn-orbit" data-period="10755.698" data-epoch="@saturnAngle.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)"><div class="planet-wrapper"><div class="planet saturn" data-rot-period="10.656"><div class="planet-surface"><div class="tooltip">Сатурн</div></div><div class="planet-shadow"></div>
+<div class="moon-system">
+    <div class="moon-orbit" style="width: 110px; height: 110px;"><div class="moon" data-period="15.945" data-epoch="45" style="background-color: #d4b895; width: 8px; height: 8px;"><div class="moon-shadow"></div><div class="tooltip">Титан</div></div></div>
+    <div class="moon-orbit" style="width: 140px; height: 140px;"><div class="moon" data-period="4.518" data-epoch="200" style="background-color: #b0a89a; width: 5px; height: 5px;"><div class="moon-shadow"></div><div class="tooltip">Рея</div></div></div>
+</div></div></div></div>
+        <div class="portal" title="Врата Атлантов"><div class="portal-ring outer"></div><div class="portal-ring inner"></div><div class="portal-core"></div><div class="tooltip">🌀 Врата Атлантов</div></div>
+    </div>
+</div>
+
+<div style="position: fixed; bottom: 10px; left: 10px; color: rgba(255,255,255,0.3); font-size: 12px; z-index: 10000; pointer-events: none;">© Булатов Алексей Юрьевич, 1973, г. Люберцы</div>
+
+@code {
+    double earthAngle, marsAngle, jupiterAngle, saturnAngle;
+    List<AsteroidData> asteroids = new();
+    protected override void OnInitialized() {
+        var now = DateTime.UtcNow; var epoch = new DateTime(2000, 1, 1, 12, 0, 0, DateTimeKind.Utc); var days = (now - epoch).TotalDays;
+        earthAngle = (100.46 + 0.98560911 * days) % 360; marsAngle = (355.43 + 0.524033 * days) % 360; jupiterAngle = (34.35 + 0.083086 * days) % 360; saturnAngle = (50.08 + 0.033444 * days) % 360;
+        var rnd = new Random(); for (int i = 0; i < 15000; i++) { var a = 2.1 + rnd.NextDouble() * 1.2; var e = rnd.NextDouble() * 0.2; var inc = rnd.NextDouble() * 15; var period = 365.25 * Math.Pow(a, 1.5); var epochAngle = rnd.NextDouble() * 360; asteroids.Add(new AsteroidData { A = a, E = e, I = inc, Period = period, Epoch = epochAngle }); }
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender) { var json = JsonSerializer.Serialize(asteroids); await JS.InvokeVoidAsync("initAsteroids", json); } }
+    public class AsteroidData { public double A { get; set; } public double E { get; set; } public double I { get; set; } public double Period { get; set; } public double Epoch { get; set; } }
+    string GetLocalizedTitle() => System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName switch { "ru" => "Солнечная система", "en" => "Solar System", _ => "Solar System" };
+    string GetLocalizedWelcome() => System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName switch { "ru" => "Добро пожаловать в галактику Млечный Путь", "en" => "Welcome to the Milky Way Galaxy", _ => "Welcome" };
+}
+
+
+
