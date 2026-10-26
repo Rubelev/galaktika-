@@ -4050,6 +4050,7 @@ function ensureFleet(user) {
     if (!Array.isArray(user.buildQueue)) user.buildQueue = [];
     if (typeof user.habitatsBuilt !== 'number') user.habitatsBuilt = 0;
     if (typeof user.medModules !== 'number') user.medModules = 0;
+    if (typeof user.cloners !== 'number') user.cloners = 0;
     if (!user.lang) user.lang = 'ru';
 }
 
@@ -4292,6 +4293,16 @@ function renderDock() {
     });
     html += '</div>';
 
+    // оборудование: клонирование
+    const cloneHave = currentUser.cloners || 0;
+    const cloneBonus = Math.min(2, cloneHave * 0.5);
+    html += '<h3 style="margin:26px 0 12px; font-weight:400">Клонирование</h3>' +
+        '<div class="hab-row">' +
+        `<span>комплексов ${cloneHave} из 4 · прирост рождаемости +${cloneBonus}% (нужен избыток еды)</span>` +
+        `<button class="auth-btn" style="width:auto;padding:8px 14px;margin:0" onclick="buildCloner()">Построить · 380 000 кр</button>` +
+        `<button class="auth-btn" style="width:auto;padding:8px 14px;margin:0" onclick="buyCloner()">Купить · 500 000 кр</button>` +
+        '</div>';
+
     // найм людей
     html += '<h3 style="margin:26px 0 12px; font-weight:400">Найм колонистов</h3>' +
         `<div class="hab-row" style="align-items:flex-start"><span style="min-width:150px">колония: ${(GLOBE_NAMES[window.COLONY_WORLD] || 'Кеплер-1')} · жителей ${(window.COLONY_POP || 0).toLocaleString()}</span>` +
@@ -4402,6 +4413,31 @@ window.buildPlant = (id) => {
     saveUser(); renderDock(); updateCredits();
 };
 
+// Комплекс клонирования: тоже можно построить или купить готовым.
+window.buildCloner = () => {
+    ensureFleet(currentUser);
+    if (currentUser.buildQueue.length >= MAX_PARALLEL_BUILDS) { notify('Все верфи заняты'); return; }
+    const cost = 380000, steel = 260, chips = 90;
+    if (currentUser.credits < cost) { notify('Нужно ' + cost.toLocaleString() + ' кр'); return; }
+    if ((currentUser.resources.steel || 0) < steel) { notify('Нужно ' + steel + ' т стали'); return; }
+    if ((currentUser.resources.chips || 0) < chips) { notify('Нужно ' + chips + ' чипов'); return; }
+    currentUser.credits -= cost;
+    currentUser.resources.steel -= steel;
+    currentUser.resources.chips -= chips;
+    currentUser.buildQueue.push({ kind: 'cloner', id: 'cloner', name: 'Комплекс клонирования', minutes: 22, endsAt: Date.now() + 22 * 60000 });
+    saveUser(); renderDock(); updateCredits();
+};
+
+window.buyCloner = () => {
+    ensureFleet(currentUser);
+    const price = 500000;
+    if (currentUser.credits < price) { notify('Нужно ' + price.toLocaleString() + ' кр'); return; }
+    currentUser.credits -= price;
+    currentUser.cloners = (currentUser.cloners || 0) + 1;
+    saveUser(); updateCredits();
+    notify('Комплекс клонирования куплен: всего ' + currentUser.cloners);
+};
+
 // Медицинский модуль: можно построить самому или купить готовый.
 // Постройка дешевле, но идёт 25 минут и требует сталь и чипы.
 // Найм людей: чем ближе условия нового мира к родным, тем дешевле переезд.
@@ -4507,6 +4543,9 @@ function tickBuilds() {
             currentUser.plants = currentUser.plants || {};
             currentUser.plants[q.id] = (currentUser.plants[q.id] || 0) + 1;
             notify(q.name + ' построена, уровень ' + currentUser.plants[q.id]);
+        } else if (q.kind === 'cloner') {
+            currentUser.cloners = (currentUser.cloners || 0) + 1;
+            notify('Комплекс клонирования готов: всего ' + currentUser.cloners);
         } else if (q.kind === 'med') {
             currentUser.medModules = (currentUser.medModules || 0) + 1;
             notify('Медицинский модуль готов: всего ' + currentUser.medModules);
@@ -5052,7 +5091,7 @@ let solarVisible = false;
 function buildStamp() {
     const stamp = document.createElement('div');
     stamp.className = 'build-stamp';
-    stamp.textContent = 'модель 617 · ' + currentSystem.name + (DEV_MODE ? ' · отладка' : '');
+    stamp.textContent = 'модель 619 · ' + currentSystem.name + (DEV_MODE ? ' · отладка' : '');
     document.body.appendChild(stamp);
 }
 
