@@ -2160,26 +2160,26 @@ const GLOBE_NAMES = {
 };
 
 const GLOBE_TEX = {
-    mercury: '/images/tex/mercury.webp',
-    venus: '/images/tex/venus.webp',
-    earth: '/images/tex/earth.webp',
-    moon: '/images/tex/moon.webp',
-    mars: '/images/tex/mars.webp',
-    phobos: '/images/tex/phobos.webp',
-    deimos: '/images/tex/deimos.webp',
+    mercury: '/images/tex/mercury.jpg',
+    venus: '/images/tex/venus.jpg',
+    earth: '/images/tex/earth.jpg',
+    moon: '/images/tex/moon.jpg',
+    mars: '/images/tex/mars.jpg',
+    phobos: '/images/tex/phobos.jpg',
+    deimos: '/images/tex/deimos.jpg',
     ceres: '/images/tex/ceres.jpg',
-    jupiter: '/images/tex/jupiter.webp',
-    io: '/images/tex/io.webp',
+    jupiter: '/images/tex/jupiter.jpg',
+    io: '/images/tex/io.jpg',
     europa: '/images/tex/europa.webp',
-    ganymede: '/images/tex/ganymede.webp',
-    callisto: '/images/tex/callisto.webp',
-    saturn: '/images/tex/saturn.webp',
-    titan: '/images/tex/titan.webp',
-    enceladus: '/images/tex/enceladus.webp',
-    uranus: '/images/tex/uranus.webp',
-    titania: '/images/tex/titania.webp',
-    neptune: '/images/tex/neptune.webp',
-    triton: '/images/tex/triton.webp',
+    ganymede: '/images/tex/ganymede.jpg',
+    callisto: '/images/tex/callisto.jpg',
+    saturn: '/images/tex/saturn.jpg',
+    titan: '/images/tex/titan.jpg',
+    enceladus: '/images/tex/enceladus.jpg',
+    uranus: '/images/tex/uranus.jpg',
+    titania: '/images/tex/titania.jpg',
+    neptune: '/images/tex/neptune.jpg',
+    triton: '/images/tex/triton.jpg',
     belt: '/images/tex/ceres.jpg',
     kepler1: '/images/tex/kepler1.jpg'
 };
@@ -5052,7 +5052,7 @@ let solarVisible = false;
 function buildStamp() {
     const stamp = document.createElement('div');
     stamp.className = 'build-stamp';
-    stamp.textContent = 'модель 615 · ' + currentSystem.name + (DEV_MODE ? ' · отладка' : '');
+    stamp.textContent = 'модель 617 · ' + currentSystem.name + (DEV_MODE ? ' · отладка' : '');
     document.body.appendChild(stamp);
 }
 
