@@ -1,0 +1,10 @@
+const fs=require('fs'), path=require('path'), vm=require('vm');
+const dir=path.join(__dirname,'..','src','galaktika.Web','wwwroot','js');
+const sb={window:{},console,Math,Date,JSON,isFinite,document:{addEventListener(){},querySelector:()=>null}};
+sb.window.window=sb.window; vm.createContext(sb);
+vm.runInContext(fs.readFileSync(path.join(dir,'catalog.js'),'utf8'), sb);
+vm.runInContext(fs.readFileSync(path.join(dir,'worldcoords.js'),'utf8'), sb);
+const W=sb.window.WorldCoords;
+const p=W.planetAt('pluto', Date.now());
+console.log('плутон в PLANETS:', !!W.PLANETS.pluto, '| planetAt:', p ? ('x='+p.x.toFixed(1)+' y='+p.y.toFixed(1)) : 'null');
+console.log('планет в таблице:', Object.keys(W.PLANETS).length, Object.keys(W.PLANETS).join(','));

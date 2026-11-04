@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Квест «Авария на станции» — как это выглядит</title>
+<style>
+  :root { --bg:#050d18; --card:#0d2743; --line:#1d3450; --accent:#8fd6ff; --green:#12c46b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:radial-gradient(120% 100% at 50% 0%, #12294a 0%, #071322 55%, #040a12 100%);
+         color:#dce8f7; font:15px/1.5 "Baloo 2", Fredoka, Inter, system-ui, sans-serif; min-height:100vh; }
+  header { text-align:center; padding:28px 16px 10px; }
+  h1 { margin:0 0 6px; font-size:clamp(20px, 3.2vw, 30px); color:var(--accent); }
+  .sub { opacity:.75; font-size:14px; }
+  .stage { position:relative; max-width:1040px; margin:18px auto; padding:0 12px 40px; }
+  .shot { position:relative; border:6px solid #08131f; border-radius:24px; overflow:hidden;
+          box-shadow:0 26px 70px rgba(0,0,0,.6); background:#08131f; }
+  .shot img { display:block; width:100%; height:auto; }
+  .cap { padding:12px 18px; background:linear-gradient(#0d2743,#081a2c); font-weight:700;
+         font-size:clamp(14px,2vw,18px); border-top:3px solid #08131f; }
+  .cap small { display:block; font-weight:500; opacity:.7; font-size:13px; margin-top:3px; }
+  .dots { display:flex; gap:8px; justify-content:center; margin:16px 0 0; }
+  .dot { width:12px; height:12px; border-radius:50%; background:#22374f; border:2px solid #08131f; cursor:pointer; }
+  .dot.on { background:var(--green); }
+  .nav { display:flex; gap:10px; justify-content:center; margin-top:14px; flex-wrap:wrap; }
+  .btn { border:4px solid #08131f; border-radius:16px; padding:10px 18px; cursor:pointer; font-weight:800;
+         background:linear-gradient(#6cf0a8,#12c46b); color:#06231a; box-shadow:0 6px 0 #08131f;
+         font-family:inherit; font-size:14px; text-decoration:none; display:inline-block; }
+  .btn.blue { background:linear-gradient(#8fd6ff,#2f9fe0); color:#04223a; }
+  .btn:active { transform:translateY(4px); box-shadow:0 2px 0 #08131f; }
+  footer { text-align:center; padding:8px 16px 40px; opacity:.6; font-size:13px; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚨 Авария на станции</h1>
+  <div class="sub">Мини-игра внутри «Галактики»: починить термоядерный реактор за 120 секунд</div>
+</header>
+
+<div class="stage">
+  <div class="shot">
+    <img id="pic" src="/images/promo/reactor-01.png" alt="Кадр квеста" />
+    <div class="cap"><span id="title">Брифинг</span><small id="note">Сигнал SOS и правила</small></div>
+  </div>
+
+  <div class="dots" id="dots"></div>
+
+  <div class="nav">
+    <button class="btn blue" id="prev">◀ Назад</button>
+    <button class="btn" id="next">Дальше ▶</button>
+    <a class="btn blue" href="https://warbattleuniverse.com/" target="_blank" rel="noopener">Играть</a>
+  </div>
+</div>
+
+<footer>Кадры сняты в живой игре. Скриншоты: <a href="/images/promo/reactor-01.png">1</a> ·
+  <a href="/images/promo/reactor-02.png">2</a> · <a href="/images/promo/reactor-03.png">3</a> ·
+  <a href="/images/promo/reactor-04.png">4</a> · <a href="/images/promo/reactor-05.png">5</a></footer>
+
+<script>
+(function () {
+  var SLIDES = [
+    ['Брифинг', 'Сигнал SOS и правила', '/images/promo/reactor-01.png'],
+    ['Станция', 'Шесть отсеков, таймер 120 секунд', '/images/promo/reactor-02.png'],
+    ['Ремонт в процессе', 'Починенные отсеки становятся зелёными', '/images/promo/reactor-03.png'],
+    ['Победа', 'Оценка за скорость и награда', '/images/promo/reactor-04.png'],
+    ['Провал', 'Неверный порядок — станция потеряна', '/images/promo/reactor-05.png']
+  ];
+  var i = 0, timer = null;
+  var pic = document.getElementById('pic');
+  var title = document.getElementById('title');
+  var note = document.getElementById('note');
+  var dots = document.getElementById('dots');
+
+  SLIDES.forEach(function (s, idx) {
+    var d = document.createElement('div');
+    d.className = 'dot' + (idx === 0 ? ' on' : '');
+    d.title = s[0];
+    d.onclick = function () { show(idx); restart(); };
+    dots.appendChild(d);
+  });
+
+  function show(n) {
+    i = (n + SLIDES.length) % SLIDES.length;
+    pic.src = SLIDES[i][2];
+    title.textContent = SLIDES[i][0];
+    note.textContent = SLIDES[i][1];
+    Array.prototype.forEach.call(dots.children, function (d, k) {
+      d.className = 'dot' + (k === i ? ' on' : '');
+    });
+  }
+
+  function restart() {
+    if (timer) clearInterval(timer);
+    timer = setInterval(function () { show(i + 1); }, 3200);
+  }
+
+  document.getElementById('next').onclick = function () { show(i + 1); restart(); };
+  document.getElementById('prev').onclick = function () { show(i - 1); restart(); };
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight' || e.key === ' ') { show(i + 1); restart(); }
+    if (e.key === 'ArrowLeft') { show(i - 1); restart(); }
+  });
+  // свайп на телефоне
+  var x0 = null;
+  document.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; });
+  document.addEventListener('touchend', function (e) {
+    if (x0 === null) return;
+    var dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 40) { show(i + (dx < 0 ? 1 : -1)); restart(); }
+    x0 = null;
+  });
+
+  restart();
+})();
+</script>
+</body>
+</html>

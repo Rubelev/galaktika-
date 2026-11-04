@@ -1,0 +1,12 @@
+import http.client, hashlib, ssl
+ctx = ssl.create_default_context()
+c = http.client.HTTPSConnection("warbattleuniverse.com", timeout=30, context=ctx)
+c.request("GET", "/js/solar.js?v=627", headers={"User-Agent":"probe", "Accept-Encoding":"identity"})
+r = c.getresponse()
+data = r.read()
+print("status:", r.status)
+print("headers:", {k: v for k, v in r.getheaders() if k.lower() in ("content-length","content-encoding","etag","last-modified","server")})
+print("получено:", len(data), "| md5:", hashlib.md5(data).hexdigest())
+print("начало:", data[:60])
+print("конец:", data[-60:])
+c.close()

@@ -6,22 +6,22 @@ const ISO = { tw: 92, th: 46, cols: 13, rows: 9 };
 const SURFACES = {
     earth: {
         name: 'Земля', tint: '#4a7a3a', road: '#a89a72',
-        tex: '/images/tex/planets/earth_grass.jpg',
+        tex: '/images/tex/planets/earth_grass.webp',
         buildings: ['Верфь', 'Завод оборудования', 'Фабрика андроидов', 'Космопорт', 'Док']
     },
     moon: {
         name: 'Луна', tint: '#5a5f68', road: '#8a9099',
-        tex: '/images/tex/planets/moon_regolith.jpg',
+        tex: '/images/tex/planets/moon_regolith.webp',
         buildings: ['Биржа', 'Космопорт', 'Гравитационный лифт']
     },
     mars: {
         name: 'Марс', tint: '#8a4526', road: '#c98a5a',
-        tex: '/images/tex/planets/mars_dust.jpg',
+        tex: '/images/tex/planets/mars_dust.webp',
         buildings: ['Реактор тяжёлой воды', 'Ледяная буровая', 'Купол жизнеобеспечения', 'Фабрика андроидов']
     },
     belt: {
         name: 'Пояс', tint: '#2a303b', road: '#5a6472',
-        tex: '/images/tex/planets/asteroid_rock.jpg',
+        tex: '/images/tex/planets/asteroid_rock.webp',
         buildings: ['Буровая платформа', 'Плавильня', 'Кондритный комплекс', 'Газовый скиммер']
     }
 };

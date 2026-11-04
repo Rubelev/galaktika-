@@ -1,0 +1,902 @@
+[
+ {
+  "persona": "Казуал",
+  "pop": 539445,
+  "credits": 3871794,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 103,
+  "achievements": 2
+ },
+ {
+  "persona": "Торговец",
+  "pop": 1002666,
+  "credits": 60724,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 239,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1455668,
+  "credits": 74586,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 188,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 138681,
+  "credits": 1438728,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 54,
+  "achievements": 2
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 585966,
+  "credits": 8161,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 256,
+  "achievements": 2
+ },
+ {
+  "persona": "Торговец",
+  "pop": 162062,
+  "credits": 1302075,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 49,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1500000,
+  "credits": 167494,
+  "stage": "planet",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 1839999,
+  "credits": 5638977,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 250000,
+  "credits": 3071743,
+  "stage": "moon",
+  "alive": false,
+  "quit_day": 73,
+  "achievements": 1
+ },
+ {
+  "persona": "Торговец",
+  "pop": 1012743,
+  "credits": 2461,
+  "stage": "planet",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1441184,
+  "credits": 74586,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 340,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 534176,
+  "credits": 4293564,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 98,
+  "achievements": 2
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1502669,
+  "credits": 3560489,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 207,
+  "achievements": 2
+ },
+ {
+  "persona": "Казуал",
+  "pop": 567292,
+  "credits": 0,
+  "stage": "planet",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 2
+ },
+ {
+  "persona": "Торговец",
+  "pop": 1012743,
+  "credits": 51648,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 192,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1500000,
+  "credits": 167494,
+  "stage": "planet",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 1500000,
+  "credits": 7908426,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 235,
+  "achievements": 2
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 142365,
+  "credits": 1395716,
+  "stage": "moon",
+  "alive": false,
+  "quit_day": 43,
+  "achievements": 1
+ },
+ {
+  "persona": "Торговец",
+  "pop": 1012743,
+  "credits": 2461,
+  "stage": "planet",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1500000,
+  "credits": 167494,
+  "stage": "planet",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 67276,
+  "credits": 866893,
+  "stage": "moon",
+  "alive": false,
+  "quit_day": 27,
+  "achievements": 1
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 250000,
+  "credits": 2983092,
+  "stage": "moon",
+  "alive": false,
+  "quit_day": 68,
+  "achievements": 1
+ },
+ {
+  "persona": "Торговец",
+  "pop": 186416,
+  "credits": 2238117,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 56,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1500000,
+  "credits": 167494,
+  "stage": "planet",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 1839999,
+  "credits": 5638977,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 574507,
+  "credits": 14893,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 260,
+  "achievements": 2
+ },
+ {
+  "persona": "Торговец",
+  "pop": 963351,
+  "credits": 0,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 235,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1500000,
+  "credits": 167494,
+  "stage": "planet",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 1839999,
+  "credits": 5638977,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 293704,
+  "credits": 1136636,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 85,
+  "achievements": 2
+ },
+ {
+  "persona": "Казуал",
+  "pop": 250000,
+  "credits": 3730031,
+  "stage": "moon",
+  "alive": false,
+  "quit_day": 81,
+  "achievements": 1
+ },
+ {
+  "persona": "Торговец",
+  "pop": 1012743,
+  "credits": 2461,
+  "stage": "planet",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1500000,
+  "credits": 42166,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 315,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 630884,
+  "credits": 6241003,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 111,
+  "achievements": 2
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 567292,
+  "credits": 0,
+  "stage": "planet",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 2
+ },
+ {
+  "persona": "Торговец",
+  "pop": 67840,
+  "credits": 692260,
+  "stage": "moon",
+  "alive": false,
+  "quit_day": 26,
+  "achievements": 1
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1485075,
+  "credits": 176348,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 288,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 1839999,
+  "credits": 5638977,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 518165,
+  "credits": 3813605,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 101,
+  "achievements": 2
+ },
+ {
+  "persona": "Торговец",
+  "pop": 1012743,
+  "credits": 2461,
+  "stage": "planet",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1500000,
+  "credits": 104830,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 258,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 1839999,
+  "credits": 5638977,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 791276,
+  "credits": 2510155,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 122,
+  "achievements": 2
+ },
+ {
+  "persona": "Торговец",
+  "pop": 58817,
+  "credits": 578875,
+  "stage": "moon",
+  "alive": false,
+  "quit_day": 19,
+  "achievements": 1
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1500000,
+  "credits": 167494,
+  "stage": "planet",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 1839999,
+  "credits": 5638977,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 729987,
+  "credits": 3033708,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 118,
+  "achievements": 2
+ },
+ {
+  "persona": "Торговец",
+  "pop": 1012743,
+  "credits": 2461,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 138,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1500000,
+  "credits": 167494,
+  "stage": "planet",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 1500000,
+  "credits": 9227039,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 272,
+  "achievements": 2
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 587465,
+  "credits": 25449,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 149,
+  "achievements": 2
+ },
+ {
+  "persona": "Торговец",
+  "pop": 963351,
+  "credits": 0,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 247,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 436330,
+  "credits": 3342367,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 68,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 1839999,
+  "credits": 5638977,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 423538,
+  "credits": 3702458,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 91,
+  "achievements": 2
+ },
+ {
+  "persona": "Торговец",
+  "pop": 963351,
+  "credits": 0,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 139,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1500000,
+  "credits": 167494,
+  "stage": "planet",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 1839999,
+  "credits": 5638977,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 487488,
+  "credits": 4106296,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 98,
+  "achievements": 2
+ },
+ {
+  "persona": "Торговец",
+  "pop": 992690,
+  "credits": 59805,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 154,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 53625,
+  "credits": 224791,
+  "stage": "moon",
+  "alive": false,
+  "quit_day": 5,
+  "achievements": 1
+ },
+ {
+  "persona": "Колонист",
+  "pop": 1839999,
+  "credits": 5638977,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1502655,
+  "credits": 3540470,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 195,
+  "achievements": 2
+ },
+ {
+  "persona": "Казуал",
+  "pop": 893128,
+  "credits": 1089220,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 128,
+  "achievements": 2
+ },
+ {
+  "persona": "Торговец",
+  "pop": 1012743,
+  "credits": 2461,
+  "stage": "planet",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1500000,
+  "credits": 136162,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 235,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 1839999,
+  "credits": 5638977,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 577183,
+  "credits": 11965,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 183,
+  "achievements": 2
+ },
+ {
+  "persona": "Торговец",
+  "pop": 1002666,
+  "credits": 60724,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 287,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1485075,
+  "credits": 176348,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 244,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 546401,
+  "credits": 6272655,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 100,
+  "achievements": 2
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 51010,
+  "credits": 182102,
+  "stage": "moon",
+  "alive": false,
+  "quit_day": 9,
+  "achievements": 1
+ },
+ {
+  "persona": "Торговец",
+  "pop": 1033202,
+  "credits": 2293,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 338,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1500000,
+  "credits": 5868,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 179,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 1839999,
+  "credits": 5638977,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1502069,
+  "credits": 2761132,
+  "stage": "elevator",
+  "alive": false,
+  "quit_day": 353,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 578123,
+  "credits": 10930,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 350,
+  "achievements": 2
+ },
+ {
+  "persona": "Торговец",
+  "pop": 1012743,
+  "credits": 2461,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 150,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 54709,
+  "credits": 301395,
+  "stage": "moon",
+  "alive": false,
+  "quit_day": 6,
+  "achievements": 1
+ },
+ {
+  "persona": "Колонист",
+  "pop": 649467,
+  "credits": 4227667,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 113,
+  "achievements": 2
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Казуал",
+  "pop": 589681,
+  "credits": 9089,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 203,
+  "achievements": 2
+ },
+ {
+  "persona": "Торговец",
+  "pop": 982812,
+  "credits": 49187,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 297,
+  "achievements": 2
+ },
+ {
+  "persona": "Промышленник",
+  "pop": 1426844,
+  "credits": 0,
+  "stage": "planet",
+  "alive": false,
+  "quit_day": 317,
+  "achievements": 2
+ },
+ {
+  "persona": "Колонист",
+  "pop": 1839999,
+  "credits": 5638977,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ },
+ {
+  "persona": "Хардкор",
+  "pop": 1727248,
+  "credits": 6262910,
+  "stage": "elevator",
+  "alive": true,
+  "quit_day": null,
+  "achievements": 3
+ }
+]

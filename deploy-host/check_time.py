@@ -1,0 +1,12 @@
+import hashlib, http.client, ssl
+ctx = ssl.create_default_context()
+c = http.client.HTTPSConnection("warbattleuniverse.com", timeout=30, context=ctx)
+c.request("GET", "/js/solar.js?v=628", headers={"User-Agent":"probe","Accept-Encoding":"identity"})
+r = c.getresponse(); js = r.read().decode("utf-8","replace"); c.close()
+print("solar.js:", r.status, len(js), "байт")
+print("  ускорялки только админу:", "timeControl.style.display = currentUser.role === 'admin' ? 'flex' : 'none';" in js)
+print("  осталось безусловное включение:", "timeControl.style.display = 'flex';" in js)
+c = http.client.HTTPSConnection("warbattleuniverse.com", timeout=30, context=ctx)
+c.request("GET", "/", headers={"User-Agent":"probe"})
+r = c.getresponse(); html = r.read().decode("utf-8","replace"); c.close()
+print("index:", r.status, "| v628:", "solar.js?v=628" in html)

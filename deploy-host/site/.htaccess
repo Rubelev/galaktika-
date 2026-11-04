@@ -1,0 +1,73 @@
+DirectoryIndex index.html
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^api/auth/([a-zA-Z_]+)/?$ api.php?action=$1 [L,QSA]
+    RewriteRule ^api/pay/([a-zA-Z_]+)/?$ api.php?action=pay_$1 [L,QSA]
+    RewriteRule ^api/market/([a-zA-Z_]+)/?$ api.php?action=market_$1 [L,QSA]
+    RewriteRule ^api/rank/([a-zA-Z_]+)/?$ api.php?action=rank_$1 [L,QSA]
+    RewriteRule ^api/npcmarket/([a-zA-Z_]+)/?$ api.php?action=npcmarket_$1 [L,QSA]
+    RewriteRule ^api/colony/([a-zA-Z_]+)/?$ api.php?action=colony_$1 [L,QSA]
+    RewriteRule ^api/chat/([a-zA-Z_]+)/?$ api.php?action=chat_$1 [L,QSA]
+    RewriteRule ^api/bm/([a-zA-Z_]+)/?$ api.php?action=bm_$1 [L,QSA]
+    RewriteRule ^api/ship/([a-zA-Z_]+)/?$ api.php?action=ship_$1 [L,QSA]
+    RewriteRule ^api/shipupgrade/?$ api.php?action=ship_upgrade [L,QSA]
+    RewriteRule ^api/build/([a-zA-Z_]+)/?$ api.php?action=build_$1 [L,QSA]
+    RewriteRule ^api/worlds/([a-zA-Z_]+)/?$ api.php?action=worlds_$1 [L,QSA]
+    RewriteRule ^api/module/([a-zA-Z_]+)/?$ api.php?action=build_$1 [L,QSA]
+    RewriteRule ^api/design/([a-zA-Z_]+)/?$ api.php?action=design_$1 [L,QSA]
+    RewriteRule ^api/planet/([a-zA-Z_]+)/?$ api.php?action=planet_$1 [L,QSA]
+    RewriteRule ^api/plans/([a-zA-Z_]+)/?$ api.php?action=plans_$1 [L,QSA]
+    RewriteRule ^api/scene/([a-zA-Z_]+)/?$ api.php?action=scene_$1 [L,QSA]
+    RewriteRule ^api/reactor/([a-zA-Z_]+)/?$ api.php?action=reactor_$1 [L,QSA]
+    RewriteRule ^api/contract/([a-zA-Z_]+)/?$ api.php?action=contract_$1 [L,QSA]
+    RewriteRule ^api/hire/?$ api.php?action=hire [L,QSA]
+    RewriteRule ^api/outpost/([a-zA-Z_]+)/?$ api.php?action=outpost_$1 [L,QSA]
+    RewriteRule ^api/referral/([a-zA-Z_]+)/?$ api.php?action=referral_$1 [L,QSA]
+    RewriteRule ^api/clientlog/?$ api.php?action=clientlog [L,QSA]
+    RewriteRule ^api/clientlog/list/?$ api.php?action=clientlog_list [L,QSA]
+    RewriteRule ^api/leaderboard/?$ api.php?action=leaderboard [L,QSA]
+    RewriteRule ^api/mega/([a-zA-Z_]+)/?$ api.php?action=mega_$1 [L,QSA]
+    RewriteRule ^api/feedback/([a-zA-Z_]+)/?$ api.php?action=feedback_$1 [L,QSA]
+    RewriteRule ^api/outposts/?$ api.php?action=outposts [L,QSA]
+    RewriteRule ^api/gasplant/([a-zA-Z_]+)/?$ api.php?action=gasplant_$1 [L,QSA]
+    RewriteRule ^api/shipmod/([a-zA-Z_]+)/?$ api.php?action=ship_mod_$1 [L,QSA]
+    RewriteRule ^api/blueprint/([a-zA-Z_]+)/?$ api.php?action=blueprint_$1 [L,QSA]
+    RewriteRule ^api/shipyard/([a-zA-Z_]+)/?$ api.php?action=shipyard_$1 [L,QSA]
+    RewriteRule ^api/docks/([a-zA-Z_]+)/?$ api.php?action=docks_$1 [L,QSA]
+    RewriteRule ^api/shipmods/?$ api.php?action=ship_mods [L,QSA]
+    RewriteRule ^api/combat/([a-zA-Z_]+)/?$ api.php?action=combat_$1 [L,QSA]
+    RewriteRule ^api/trade/([a-zA-Z_]+)/?$ api.php?action=trade_$1 [L,QSA]
+    RewriteRule ^api/pirate/([a-zA-Z_]+)/?$ api.php?action=pirate_$1 [L,QSA]
+    RewriteRule ^api/rent/?$ api.php?action=rent [L,QSA]
+    RewriteRule ^api/quests/?$ api.php?action=quests [L,QSA]
+    RewriteRule ^api/stats/?$ api.php?action=stats [L,QSA]
+    RewriteRule ^api/status/?$ api.php?action=status [L,QSA]
+    RewriteRule ^api/health/?$ api.php?action=health [L,QSA]
+</IfModule>
+
+# Данные игры не должны отдаваться наружу
+<FilesMatch "^(users|tokens)\.json$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Кэш статики
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 7 days"
+    ExpiresByType text/javascript "access plus 7 days"
+    ExpiresByType image/jpeg "access plus 30 days"
+    ExpiresByType image/png "access plus 30 days"
+</IfModule>
+
+# Свежесть кода: HTML и скрипты не должны залипать в кэше после деплоя
+<FilesMatch "\.(html|js|css)$">
+    Header set Cache-Control "no-store, no-cache, must-revalidate"
+    Header set Pragma "no-cache"
+</FilesMatch>

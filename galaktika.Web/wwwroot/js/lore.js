@@ -1,4 +1,34 @@
-﻿// === ЛОР И ДАННЫЕ ===
+// visual-test-token: ?token=<токен> кладёт токен до старта приложения,
+// чтобы headless-браузер мог снять игровую сцену целиком (правило 22)
+(function () {
+    try {
+        var t = new URLSearchParams(location.search).get('token');
+        if (t) localStorage.setItem('galaktika_token', t);
+        // для скриншотов: если есть токен, но нет пользователя — поднимаем профиль
+        var tok = localStorage.getItem('galaktika_token');
+        var usr = localStorage.getItem('galaktika_user');
+        if (t && tok && !usr && !sessionStorage.getItem('gm_restoring')) {
+            sessionStorage.setItem('gm_restoring', '1');
+            fetch('/api/auth/me', { headers: { 'X-Auth-Token': tok } })
+                .then(function (r) { return r.json(); })
+                .then(function (res) {
+                    if (!res || !res.email) return;
+                    var prof = {};
+                    try { prof = JSON.parse(res.profile || '{}'); } catch (e) { prof = {}; }
+                    var user = Object.assign({}, prof, {
+                        email: res.email, role: res.role,
+                        gameName: prof.gameName || res.email,
+                        credits: prof.credits || 0
+                    });
+                    localStorage.setItem('galaktika_user', JSON.stringify(user));
+                    location.reload();
+                })
+                .catch(function () {});
+        }
+    } catch (e) { }
+})();
+
+// === ЛОР И ДАННЫЕ ===
 window.GALAXY_LORE = {
     earth: {
         id: "earth", name: "🌍 Терра Нова", subtitle: "Земля • Мегаполис", color: "#2ecc71",

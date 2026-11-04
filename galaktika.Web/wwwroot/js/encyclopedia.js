@@ -95,7 +95,7 @@ export function open(section) {
             '<div id="enc-modal" class="market-modal"><div class="market-modal-content" style="width:960px;max-height:88vh">' +
             '<span class="close-btn" onclick="closeEncyclopedia()">&times;</span>' +
             '<h2>📖 Энциклопедия</h2>' +
-            '<div style="font-size:10px;color:#6b7889;margin:-6px 0 10px">© Булатов Алексей Юрьевич, 2026</div>' +
+            '<div style="font-size:10px;color:#6b7889;margin:-6px 0 10px">© Галактика, 2026</div>' +
             '<div id="enc-tabs" class="enc-tabs"></div>' +
             '<div id="enc-body" class="enc-body"></div>' +
             '</div></div>');

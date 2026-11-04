@@ -1,9 +1,78 @@
+// ============================================================================
+//  СВЯЗИ: что править вместе с этим файлом
+//  ---------------------------------------------------------------------------
+//  Отвечает за отрисовку сцены, но НЕ за математику движения — она в motion.js.
+//
+//  Меняешь здесь отрисовку/слой/маркеры — синхронно проверь:
+//   1) js/motion.js — источник позиций: shipPose(), segmentPose(), routePose().
+//      Не добавляй сюда свою формулу скорости: появится «второй апдейтер»,
+//      и маркер начнёт прыгать (уже случалось: 77 px за кадр).
+//   2) js/worldcoords.js — планеты берут позицию только оттуда
+//      (WorldCoords.planetAt). Свои орбиты тут не считать.
+//   3) app.css — классы маркеров (.ship-marker, .trade-ship, .moon, .orbit).
+//      Меняешь размер/поворот — правь и transform в обеих сторонах.
+//   4) html-шаблоны (make-static.ps1, App.razor): теги <script> и их ?v=N.
+//      Поднимай версию при любой правке этого файла.
+//   5) ?freeze / window.__freezeAt — тестовый режим кадра. Если трогаешь
+//      animate(), не сломай жёсткую заморозку: время должно стоять.
+//   6) tools/verify_math.js, deploy-host/audit_all.py — прогони после правок.
+// ============================================================================
+
+
+// ПЕРЕСБОРКА ЛИНИЙ ПОСЛЕ СЛИЯНИЯ КАТАЛОГА: Плутон появляется в WorldCoords
+// позже, чем строится разметка, из-за чего его линия считалась по старой
+// формуле (расхождение 43,8 px). Пересобираем пути, у которых был pending.
+function rebuildPendingOrbits() {
+    if (!window.WorldCoords || !window.WorldCoords.planetAt) return;
+    document.querySelectorAll('.orbit[data-path-pending="1"]').forEach(function (orbit) {
+        const planetEl = orbit.querySelector('.planet[data-planet-id]');
+        if (!planetEl) return;
+        const id = planetEl.getAttribute('data-planet-id');
+        const b = window.CatalogBridge && window.CatalogBridge.find ? window.CatalogBridge.find(id) : null;
+        if (!b || !window.WorldCoords.PLANETS[id]) return;
+        const wp = window.WorldCoords.PLANETS[id] || {};
+        const periodMs = Math.max(1000, (Number(wp.period) || 365) * 86400000);
+        const E = Number(wp.e) || 0;
+        const N = E > 0.2 ? 900 : E > 0.08 ? 420 : 240;
+        let pts = [], rMax = 0;
+        for (let k = 0; k <= N; k++) {
+            const q = window.WorldCoords.planetAt(id, periodMs * (k / N));
+            if (!q) continue;
+            rMax = Math.max(rMax, Math.hypot(q.x, q.y));
+            pts.push((k ? 'L' : 'M') + q.x.toFixed(1) + ' ' + q.y.toFixed(1));
+        }
+        if (pts.length < 3) return;
+        const box = Math.max(10, rMax * 2 + 8);
+        const svg = orbit.querySelector('svg.orbit-path');
+        if (!svg) return;
+        svg.setAttribute('width', box);
+        svg.setAttribute('height', box);
+        const path = svg.querySelector('path');
+        if (path) path.setAttribute('d', pts.join(' '));
+        orbit.style.width = box + 'px';
+        orbit.style.height = box + 'px';
+        orbit.removeAttribute('data-path-pending');
+    });
+}
+setTimeout(rebuildPendingOrbits, 2600);
+setTimeout(rebuildPendingOrbits, 5000);
+
 /* ==========================================================================
    ГАЛАКТИКА МЛЕЧНЫЙ ПУТЬ
    Автор и правообладатель: Булатов Алексей Юрьевич (Rubelev)
    Контакт: ab@btema.ru
    Все права защищены. Копирование без разрешения автора не допускается.
    ========================================================================== */
+
+// Режим визуальных тестов: ?token=<токен> кладёт его в localStorage,
+// чтобы headless-браузер мог снять игровую сцену целиком (правило 22).
+(function () {
+    try {
+        const q = new URLSearchParams(location.search);
+        const t = q.get('token');
+        if (t) localStorage.setItem('galaktika_token', t);
+    } catch (e) {}
+})();
 
 // =========================================================
 // ГЛОБАЛЬНЫЙ ФЛАГ ОТЛАДКИ
@@ -26,6 +95,8 @@ function dbgLog(node, message, data = null) {
 
 let currentUser = JSON.parse(localStorage.getItem('galaktika_user')) || null;
 let usersDB = JSON.parse(localStorage.getItem('galaktika_users')) || [];
+// Доступ к текущему пользователю для внешних модулей (js/payments.js).
+window.getCurrentUser = () => currentUser;
 // Администраторы проекта: полный доступ к монитору и правкам.
 // Свой адрес добавьте в список — роль выдаётся автоматически при входе.
 const ADMIN_EMAILS = ["ab@btema.ru"];
@@ -45,7 +116,15 @@ let selectedFaction = null;
 
 const FACTION_NAMES = { earth: "🌍 Терра Нова", mars: "🔴 Мир Тишины", asteroid: "💫 Титановое Кольцо" };
 // Всплывающие уведомления вместо alert: не блокируют игру и не вешают тесты.
+// Дедупликация: одно и то же сообщение не показывается дважды подряд
+const __lastToasts = new Map();
 function notify(text, kind) {
+    const nowTs = Date.now();
+    const prev = __lastToasts.get(text) || 0;
+    if (nowTs - prev < 3000) return;      // дубль в пределах 3 секунд — гасим
+    __lastToasts.set(text, nowTs);
+    if (__lastToasts.size > 60) __lastToasts.clear();
+
     let box = document.getElementById('toast-box');
     if (!box) {
         box = document.createElement('div');
@@ -243,6 +322,7 @@ if (currentUser) { if (migrateResources(currentUser)) saveUser(); }
 
 function saveUser() {
     localStorage.setItem('galaktika_user', JSON.stringify(currentUser));
+    if (typeof syncProfile === 'function') { try { syncProfile(); } catch (e) {} }
     const idx = usersDB.findIndex(u => u.email === currentUser.email);
     if (idx !== -1) { usersDB[idx] = currentUser; localStorage.setItem('galaktika_users', JSON.stringify(usersDB)); }
 }
@@ -253,22 +333,138 @@ window.showLoginForm = () => { document.getElementById('welcome-screen').style.d
 window.showRegisterForm = () => { document.getElementById('welcome-screen').style.display = 'none'; document.getElementById('auth-form-login').style.display = 'none'; document.getElementById('auth-form-register').style.display = 'block'; selectedFaction = null; document.querySelectorAll('.faction-card').forEach(c => c.classList.remove('selected')); };
 window.selectFaction = (faction) => { selectedFaction = faction; document.querySelectorAll('.faction-card').forEach(c => c.classList.remove('selected')); const card = document.querySelector(`.faction-card[data-faction="${faction}"]`); if (card) card.classList.add('selected'); dbgLog('AUTH', 'Faction selected', faction); };
 
+// =========================================================
+// СЕРВЕРНАЯ АВТОРИЗАЦИЯ
+// =========================================================
+// Пароль проверяется на сервере. Если сервер недоступен
+// (локальный запуск без API), работает прежний локальный вход.
+let authToken = localStorage.getItem('galaktika_token') || null;
+
+async function apiPost(path, body, withToken) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (withToken && authToken) headers['X-Auth-Token'] = authToken;
+    const res = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
+    let data = null;
+    try { data = await res.json(); } catch (e) {}
+    return { ok: res.ok, status: res.status, data };
+}
+
+async function apiGet(path) {
+    const headers = {};
+    if (authToken) headers['X-Auth-Token'] = authToken;
+    try {
+        const res = await fetch(path, { headers });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch (e) { return null; }
+}
+
+// Серверный профиль — источник прогресса: подтягиваем при старте и после действий.
+async function pullServerProfile() {
+    if (!authToken || !currentUser) return false;
+    const me = await apiGet('/api/auth/me');
+    if (!me || !me.profile) return false;
+    let srv = {};
+    try { srv = JSON.parse(me.profile) || {}; } catch (e) { return false; }
+    // НЕ стираем прогресс молча: если сервер пометил «колонию забрали»,
+    // только предупреждаем. Раньше здесь удалялись все локальные ключи,
+    // которых нет на сервере, — игрока «выкидывало в начало игры».
+    if (srv.resetReason === 'colony_taken') {
+        if (typeof notify === 'function') notify('Сервер сообщает: колонию забрали. Прогресс сохранён, проверьте склад.');
+    }
+    const hadLegend = currentUser.hasSeenLegend === true;
+    Object.keys(srv).forEach(k => {
+        if (srv[k] !== undefined) currentUser[k] = srv[k];
+    });
+    // пролог не должен запускаться повторно из-за пустого флага на сервере
+    if (hadLegend) currentUser.hasSeenLegend = true;
+    currentUser.role = me.role === 'admin' ? 'admin' : (currentUser.role || 'user');
+    saveUser();
+    if (typeof window.updateAuthUI === 'function') { try { window.updateAuthUI(); } catch (e) { } }
+    return true;
+}
+window.pullServerProfile = pullServerProfile;
+
+window.apiLogin = async (email, password) => {
+    try {
+        const r = await apiPost('/api/auth/login', { email, password }, false);
+        if (!r.ok) return { ok: false, reason: 'denied' };
+        authToken = r.data.token;
+        localStorage.setItem('galaktika_token', authToken);
+        return { ok: true, role: r.data.role, profile: r.data.profile };
+    } catch (e) {
+        return { ok: false, reason: 'offline' };
+    }
+};
+
+window.apiRegister = async (payload) => {
+    try {
+        // реф-код из ссылки приглашения
+        try {
+            const ref = localStorage.getItem('galaktika_ref');
+            if (ref && !payload.ref) payload = Object.assign({}, payload, { ref: ref });
+        } catch (e) { }
+        const r = await apiPost('/api/auth/register', payload, false);
+        if (!r.ok) return { ok: false, reason: 'denied', error: r.data && r.data.error };
+        authToken = r.data.token;
+        localStorage.setItem('galaktika_token', authToken);
+        return { ok: true, role: r.data.role };
+    } catch (e) {
+        return { ok: false, reason: 'offline' };
+    }
+};
+
+// Отправка профиля на сервер (не блокирует игру).
+function syncProfile() {
+    if (!authToken || !currentUser) return;
+    apiPost('/api/auth/profile', { profile: JSON.stringify(currentUser) }, true).catch(() => {});
+}
+
 window.login = () => {
     const email = document.getElementById('login-email').value.trim(); const password = document.getElementById('login-password').value;
     if (!email || !password) { notify("Введите Email и пароль!"); return; }
-    const user = usersDB.find(u => u.email === email);
-    if (!user) { notify("Пользователь не найден!"); return; }
-    if (user.password !== password) { notify("Неверный пароль!"); return; }
-    
-    currentUser = user; saveUser(); updateAuthUI(); window.solarReset();
-    if (!currentUser.hasSeenLegend) startLegend();
+    (async () => {
+        const srv = await window.apiLogin(email, password);
+        if (srv.ok) {
+            // сервер подтвердил пароль: профиль берём с сервера, локальная копия — только дополнение
+            const local = usersDB.find(u => u.email === email) || {};
+            let server = {};
+            try { server = JSON.parse(srv.profile) || {}; } catch (e) { server = {}; }
+            const wiped = server.resetReason === 'colony_taken';
+            const user = wiped ? Object.assign({}, server) : Object.assign({}, local, server);
+            if (wiped) notify('Колонию забрали, пока вас не было. Вы начинаете заново.');
+            user.email = email;
+            user.role = srv.role === 'admin' ? 'admin' : (server.role || local.role || 'user');
+            if (!user.password) user.password = password;
+            const idx = usersDB.findIndex(u => u.email === email);
+            if (idx >= 0) usersDB[idx] = user; else usersDB.push(user);
+            localStorage.setItem('galaktika_users', JSON.stringify(usersDB));
+            currentUser = user; saveUser(); try { updateAuthUI(); } catch (e) { /* нет DOM профиля */ }
+    if (MAINTENANCE && (!user || user.role !== 'admin')) {
+        showMaintenance();
+        setTimeout(() => {
+            const scene = document.querySelector('.solar-system');
+            if (scene) scene.style.display = 'none';
+        }, 300);
+    }
+    window.solarReset();
+            return;
+        }
+        if (srv.reason === 'denied') { notify('Неверный пароль!'); return; }
+
+        // сервер недоступен — локальная проверка (офлайн-режим)
+        const user = usersDB.find(u => u.email === email);
+        if (!user) { notify("Пользователь не найден!"); return; }
+        if (user.password !== password) { notify("Неверный пароль!"); return; }
+        currentUser = user; saveUser(); try { updateAuthUI(); } catch (e) { /* нет DOM профиля */ } window.solarReset();
+    })();
 };
 
 window.register = () => {
-    const lastName = document.getElementById('reg-name').value.trim(); const email = document.getElementById('reg-email').value.trim();
+    const email = document.getElementById('reg-email').value.trim();
     const gameName = document.getElementById('reg-game').value.trim(); const password = document.getElementById('reg-password').value;
     const passwordConfirm = document.getElementById('reg-password-confirm').value;
-    if (!lastName || !email || !gameName || !password) { notify("Заполните все поля!"); return; }
+    if (!email || !gameName || !password) { notify("Заполните все поля!"); return; }
     if (password.length < 4) { notify("Пароль должен быть не менее 4 символов!"); return; }
     if (password !== passwordConfirm) { notify("Пароли не совпадают!"); return; }
     if (!selectedFaction) { notify("Выберите свою цивилизацию!"); return; }
@@ -280,16 +476,22 @@ window.register = () => {
         asteroid: { water: 300, ice: 8000, heavy: 40, grain: 200, meat: 50, spice: 10, steel: 12000, copper: 5000, nickel: 4000, silver: 300, gold: 90, quartz: 1500, diamond: 120, corundum: 400, chondrite: 2500, methanol: 900, polymer: 200 }
     };
     const newUser = { 
-        lastName, email, gameName, role: isAdminEmail(email) ? "admin" : "user", password, faction: selectedFaction, hasSeenLegend: false,
+        email, gameName, role: isAdminEmail(email) ? "admin" : "user", password, faction: selectedFaction, hasSeenLegend: false,
         resources: Object.assign(zeroResources(), factionDefaults[selectedFaction]), resourcesV: 2, fleet: { transport: 3, recycler: 2, assault: 1, fighter: 5, cruiser: 1, super_cruiser: 0, colonizer: 0 }, questProgress: { step: 0 }
     };
     usersDB.push(newUser); localStorage.setItem('galaktika_users', JSON.stringify(usersDB));
-    currentUser = newUser; saveUser(); updateAuthUI(); window.solarReset(); startLegend();
+    currentUser = newUser; saveUser(); try { updateAuthUI(); } catch (e) { /* нет DOM профиля */ } window.solarReset();
+    // Регистрируем и на сервере, иначе у игрока нет токена и оплата ему недоступна.
+    window.apiRegister({ email, password, lastName: '', gameName, faction: selectedFaction })
+        .catch(() => {});
 };
 
-window.logout = () => { currentUser = null; localStorage.removeItem('galaktika_user'); showWelcomeScreen(); updateAuthUI(); };
+window.logout = () => { currentUser = null; localStorage.removeItem('galaktika_user'); showWelcomeScreen(); try { updateAuthUI(); } catch (e) { /* нет DOM профиля */ } };
 
 function updateAuthUI() {
+    // меню показываем только когда известен пользователь — иначе оно дважды
+    // перестраивается при загрузке (визуально «двойной рывок»)
+    if (currentUser) document.body.classList.add('auth-ready');
     const overlay = document.getElementById('auth-overlay'); const timeControl = document.getElementById('time-control-panel');
     const adminBtn = document.getElementById('admin-btn'); const userInfo = document.getElementById('user-info');
     const userFaction = document.getElementById('user-faction'); const leftMenu = document.getElementById('left-menu');
@@ -300,10 +502,10 @@ function updateAuthUI() {
         ensureFleet(currentUser);
         let creditsEl = document.getElementById('user-credits');
         if (!creditsEl) { creditsEl = document.createElement('div'); creditsEl.id = 'user-credits'; creditsEl.className = 'user-credits'; userFaction.parentNode.insertBefore(creditsEl, userFaction.nextSibling); }
-        creditsEl.textContent = currentUser.credits.toLocaleString() + ' кр';
+        creditsEl.textContent = Math.round(currentUser.credits).toLocaleString('ru-RU') + ' кр';
         leftMenu.style.display = 'flex'; controlPanel.style.display = 'block'; solarContainer.style.visibility = 'visible';
         // Ускорение времени — инструмент разработчика, игроку оно не нужно.
-        timeControl.style.display = 'flex';
+        timeControl.style.display = currentUser.role === 'admin' ? 'flex' : 'none';
         adminBtn.style.display = currentUser.role === 'admin' ? 'block' : 'none';
     } else { 
         overlay.style.display = 'flex'; timeControl.style.display = 'none'; adminBtn.style.display = 'none'; userInfo.innerText = ''; 
@@ -531,8 +733,19 @@ function endLegend() {
     if (legendTimer) { clearInterval(legendTimer); legendTimer = null; }
     const overlay = document.getElementById('legend-overlay');
     if (overlay) overlay.style.display = 'none';
-    if (currentUser) { currentUser.hasSeenLegend = true; saveUser(); }
-    updateAuthUI();
+    if (currentUser) {
+        currentUser.hasSeenLegend = true;
+        saveUser();
+        // Флаг «пролог пройден» должен жить НА СЕРВЕРЕ, иначе после перезагрузки
+        // пролог запускается заново (баг Игоря).
+        try {
+            if (typeof apiPost === 'function' && authToken) {
+                apiPost('/api/profile', { profile: JSON.stringify(currentUser) }, true)
+                    .catch(() => {});
+            }
+        } catch (e) { }
+    }
+    try { updateAuthUI(); } catch (e) { /* нет DOM профиля */ }
 }
 
 // =========================================================
@@ -546,12 +759,11 @@ function endLegend() {
 
 // «а.е. -> радиус орбиты в px»: линейная интерполяция по узлам.
 // Внутренние планеты почти сохраняют пропорции, внешние сжаты.
-const ORBIT_SCALE = [
-    [0.387, 118], [0.723, 150], [1.000, 185], [1.524, 228], [2.100, 245],
-    [3.300, 300], [5.203, 330], [9.537, 400], [19.191, 480], [30.069, 560], [39.482, 620]
-];
+// ЕДИНАЯ ШКАЛА: см. js/scene-scale.js (без копий)
+    const ORBIT_SCALE = (window.SceneScale && window.SceneScale.TABLE) || [];
 
 function orbitRadius(au) {
+        if (window.SceneScale) return window.SceneScale.orbitPx(au);
     const t = ORBIT_SCALE;
     if (au <= t[0][0]) return t[0][1] * (au / t[0][0]);
     for (let i = 1; i < t.length; i++) {
@@ -560,8 +772,11 @@ function orbitRadius(au) {
             return r0 + (r1 - r0) * (au - a0) / (a1 - a0);
         }
     }
+    // ДАЛЬШЕ ПОСЛЕДНЕЙ ТОЧКИ — ЛОГАРИФМ: линейная экстраполяция выбрасывала
+    // Плутон (39,5 а.е.) на 4516 px, за кадр.
     const n = t.length;
-    return t[n - 1][1] + (t[n - 1][1] - t[n - 2][1]) * (au - t[n - 1][0]) / (t[n - 1][0] - t[n - 2][0]);
+    const aLast = t[n - 1][0], rLast = t[n - 1][1];
+    return rLast + rLast * 0.16 * Math.log(au / aLast);
 }
 
 // Солнечная система: 8 планет + Плутон и 23 крупных спутника.
@@ -572,64 +787,49 @@ const SOL_SYSTEM = {
     id: 'sol',
     name: 'Солнечная система',
     star: { name: 'Солнце', size: 84, color: '#ffb300' },
-    planets: [
-        { id: 'mercury', name: 'Меркурий', au: 0.38710, period: 87.9691, L0: 252.25084, rotH: 1407.6, size: 9, texture: 'mercury', tint: '#b0a49a', moons: [] },
-        { id: 'venus', name: 'Венера', au: 0.72333, period: 224.7008, L0: 181.97973, rotH: -5832.5, size: 16, texture: 'venus', tint: '#e0c088', moons: [] },
-        {
-            id: 'earth', name: 'Земля', au: 1.00000, period: 365.2564, L0: 100.46435, rotH: 23.9345, size: 26, texture: 'earth', tint: '#1565c0',
-            moons: [{ name: 'Луна', period: 27.321661, epoch: 218.32, radius: 30, size: 8, texture: 'moon' }]
-        },
-        {
-            id: 'mars', name: 'Марс', au: 1.52371, period: 686.9800, L0: 355.45332, rotH: 24.6229, size: 20, texture: 'mars', tint: '#c1440e',
-            moons: [
-                { name: 'Фобос', period: 0.318910, epoch: 35, radius: 20, size: 4, texture: 'phobos' },
-                { name: 'Деймос', period: 1.262441, epoch: 120, radius: 27, size: 3, texture: 'deimos' }
-            ]
-        },
-        {
-            id: 'jupiter', name: 'Юпитер', au: 5.20289, period: 4332.589, L0: 34.40438, rotH: 9.9250, size: 54, texture: 'jupiter', tint: '#d8ca9d',
-            moons: [
-                { name: 'Ио', period: 1.769138, epoch: 10, radius: 36, size: 6, texture: 'io' },
-                { name: 'Европа', period: 3.551181, epoch: 85, radius: 46, size: 5, texture: 'europa' },
-                { name: 'Ганимед', period: 7.154553, epoch: 160, radius: 56, size: 8, texture: 'ganymede' },
-                { name: 'Каллисто', period: 16.689018, epoch: 250, radius: 62, size: 7, texture: 'callisto' }
-            ]
-        },
-        {
-            id: 'saturn', name: 'Сатурн', au: 9.53707, period: 10759.22, L0: 49.94432, rotH: 10.656, size: 48, texture: 'saturn', tint: '#e0c9a3',
-            moons: [
-                { name: 'Мимас', period: 0.942422, epoch: 20, radius: 32, size: 3, tint: '#c9c6bf' },
-                { name: 'Энцелад', period: 1.370218, epoch: 70, radius: 38, size: 4, texture: 'enceladus' },
-                { name: 'Тефия', period: 1.887802, epoch: 120, radius: 44, size: 4, tint: '#cfcabf' },
-                { name: 'Диона', period: 2.736915, epoch: 170, radius: 50, size: 4, tint: '#c8c2b6' },
-                { name: 'Рея', period: 4.518212, epoch: 200, radius: 56, size: 5, tint: '#b0a89a' },
-                { name: 'Титан', period: 15.945421, epoch: 45, radius: 64, size: 8, texture: 'titan' },
-                { name: 'Япет', period: 79.3215, epoch: 300, radius: 72, size: 5, tint: '#8a8070' }
-            ]
-        },
-        {
-            id: 'uranus', name: 'Уран', au: 19.19126, period: 30685.4, L0: 313.23218, rotH: -17.24, size: 34, texture: 'uranus', tint: '#a8dbe0',
-            moons: [
-                { name: 'Миранда', period: 1.413479, epoch: 30, radius: 28, size: 4, tint: '#cfd6d8' },
-                { name: 'Ариэль', period: 2.520379, epoch: 110, radius: 34, size: 5, tint: '#d9dee0' },
-                { name: 'Умбриэль', period: 4.144177, epoch: 200, radius: 40, size: 4, tint: '#9aa0a4' },
-                { name: 'Титания', period: 8.705872, epoch: 290, radius: 46, size: 6, texture: 'titania' },
-                { name: 'Оберон', period: 13.463239, epoch: 350, radius: 52, size: 5, tint: '#b3b8bb' }
-            ]
-        },
-        {
-            id: 'neptune', name: 'Нептун', au: 30.06896, period: 60189.0, L0: 304.88003, rotH: 16.11, size: 32, texture: 'neptune', tint: '#3b5bdb',
-            moons: [
-                { name: 'Протей', period: 1.122315, epoch: 15, radius: 28, size: 3, tint: '#8f9aa8' },
-                { name: 'Тритон', period: -5.876854, epoch: 60, radius: 36, size: 6, texture: 'triton' },
-                { name: 'Нереида', period: 360.136, epoch: 210, radius: 44, size: 3, tint: '#8f9aa8' }
-            ]
-        },
-        {
-            id: 'pluto', name: 'Плутон', au: 39.48212, period: 90560.0, L0: 238.92881, rotH: -153.29, size: 10, tint: '#c8b6a6',
-            moons: [{ name: 'Харон', period: 6.387230, epoch: 90, radius: 14, size: 5, tint: '#9c9c9c' }]
+    planets: (function () {
+        // ДАННЫЕ ИЗ КАТАЛОГА (SQL): в коде больше нет ни чисел, ни цветов.
+        // Каталог подключается раньше, но на всякий случай — отложенное заполнение.
+        function build() {
+            const c = window.CATALOG;
+            const all = ((c && (c.bodies || c)) || []).filter(function (b) { return (b.system || 'sol') === 'sol'; });
+            // СТАРЫЙ ВИД = ровно те 9 тел, что были в литерале (8 планет + Плутон):
+            // признак хранится в базе (legacy_planet), а не выводится по классу
+            const list = all.filter(function (b) { return Number(b.legacy_planet) === 1; });
+            if (!list.length) return [];
+            return list.map(function (b) {
+                return {
+                    id: b.id, name: b.name,
+                    au: Number(b.a), period: Number(b.P), L0: Number(b.m0) || 0,
+                    rotH: Number(b.rot_h) || 24,
+                    size: Number(b.size_px) || 12,
+                    texture: b.texture || b.id,
+                    tint: b.tint || b.color || '#9aa',
+                    moons: all.filter(function (m) { return m.parent === b.id; }).map(function (m) {
+                        if (!Number(m.moon_r_px)) return null;   // не было в литерале
+                        return {
+                            name: m.name, period: Number(m.P), epoch: Number(m.m0) || 0,
+                            radius: Number(m.moon_r_px) || 20,
+                            size: Number(m.size_px) || 6,
+                            texture: m.texture || m.id
+                        };
+                    }).filter(Boolean)
+                };
+            });
         }
-    ]
+        const built = build();
+        if (!built.length) {
+            const retry = function () {
+                if (SOL_SYSTEM.planets.length) return;
+                const again = build();
+                if (again.length) SOL_SYSTEM.planets = again;
+            };
+            setTimeout(retry, 600);
+            setTimeout(retry, 1800);
+            document.addEventListener('DOMContentLoaded', retry);
+        }
+        return built;
+    })()
 };
 
 function planetSurfaceStyle(p) {
@@ -637,14 +837,59 @@ function planetSurfaceStyle(p) {
     return `background:radial-gradient(circle at 35% 30%, ${p.tint}, rgba(0,0,0,0.85) 130%)`;
 }
 
+// луны без фото: рисуем процедурную текстуру на Python и берём её
+const MOON_SLUG = {
+    'Мимас': 'mimas', 'Тефия': 'tethys', 'Диона': 'dione', 'Рея': 'rhea',
+    'Япет': 'iapetus', 'Миранда': 'miranda', 'Ариэль': 'ariel', 'Умбриэль': 'umbriel',
+    'Оберон': 'oberon', 'Протей': 'proteus', 'Нереида': 'nereid', 'Харон': 'charon',
+    'Луна': 'moon', 'Фобос': 'phobos', 'Деймос': 'deimos', 'Ио': 'io',
+    'Европа': 'europa', 'Ганимед': 'ganymede', 'Каллисто': 'callisto',
+    'Титан': 'titan', 'Энцелад': 'enceladus', 'Титания': 'titania', 'Тритон': 'triton'
+};
+
+// Луны, которые не шар: Фобос, Деймос, Гиперион, Протей, Нереида, Амальтея.
+const IRREGULAR_MOONS = new Set(['Фобос', 'Деймос', 'Гиперион', 'Протей', 'Нереида']);
+
+// картофелевидный контур: синусоидальные «шишки» плюс немного случайности
+function potatoClip(seed) {
+    const n = 18, pts = [];
+    let state = Math.abs(seed) % 997 + 1;
+    const rnd = () => (state = (state * 9301 + 49297) % 233280) / 233280;
+    for (let i = 0; i < n; i++) {
+        const a = i / n * Math.PI * 2;
+        const rad = 0.40 + 0.055 * Math.sin(a * 2 + seed) + 0.035 * Math.sin(a * 3 + seed * 2) + 0.03 * rnd();
+        const x = 50 + Math.cos(a) * rad * 100;
+        const y = 50 + Math.sin(a) * rad * 100;
+        pts.push(Math.max(1, Math.min(99, x)).toFixed(1) + '% ' + Math.max(1, Math.min(99, y)).toFixed(1) + '%');
+    }
+    return 'polygon(' + pts.join(', ') + ')';
+}
+
+// Луны, где по игре стоят станции: у Юпитера — Ио, Европа, Ганимед, Каллисто,
+// у Сатурна — Титан и Энцелад, плюс Луна, Фобос, Деймос и Тритон.
+const MOON_STATIONS = new Set(['Луна', 'Фобос', 'Деймос', 'Ио', 'Европа', 'Ганимед',
+                               'Каллисто', 'Титан', 'Энцелад', 'Тритон']);
+
 function moonMarkup(m) {
+    // фото → своя текстура; иначе процедурная из /images/tex-proc/
+    const slug = MOON_SLUG[m.name];
+    const proc = !m.texture && slug ? `url('/images/tex-proc/${slug}.webp')` : null;
     const surface = m.texture
         ? `background-image:url('/images/tex/${m.texture}.webp')`
-        : `background-color:${m.tint || '#999'}`;
+        : (proc ? `background-image:${proc}` : `background-color:${m.tint || '#999'}`);
+    const irregular = IRREGULAR_MOONS.has(m.name);
+    const seed = m.name.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+    const shape = irregular
+        ? `clip-path:${potatoClip(seed)};border-radius:0;`
+        : '';
     return `<div class="moon-orbit" style="width:${m.radius * 2}px;height:${m.radius * 2}px;">` +
-        `<div class="moon" data-period="${m.period}" data-epoch="${m.epoch}" ` +
-        `style="${surface};width:${m.size}px;height:${m.size}px;">` +
-        `<div class="moon-shadow"></div><div class="tooltip">${m.name}</div></div></div>`;
+        `<div class="moon${irregular ? ' irregular' : ''}" data-moon="${m.name}" data-period="${m.period}" data-epoch="${m.epoch}" ` +
+        `style="${surface};width:${m.size}px;height:${m.size}px;${shape}">` +
+        `<div class="moon-shadow"></div><div class="tooltip">${m.name}</div></div>` +
+        ((MOON_STATIONS.has(m.name) || SETTLED_SYSTEM)
+            ? `<span class="moon-station" title="${m.name}: орбитальная станция"></span>`
+            : '') +
+        `</div>`;
 }
 
 // Орбитальная станция стоит в 13 px от поверхности, к ней идёт гравитационный
@@ -652,21 +897,119 @@ function moonMarkup(m) {
 // У жителей Пояса гравитация и так минимальна, поэтому им станции и лифты не нужны.
 const STATION_DIST = 13;
 
-function stationMarkup(p) {
-    if (p.noStation) return '';
-    return `<div class="station" title="${p.name}: орбитальная станция"><span class="station-core"></span></div>` +
-        `<div class="tether"></div>`;
+// Станция нужна только там, где она есть по игре: у газовых гигантов
+// нет ни поверхности, ни колоний — значок станции там бессмысленный.
+const NO_STATION = new Set(['jupiter', 'saturn', 'uranus', 'neptune', 'kepler1']);
+
+// Кеплер-1 заселена больше ста лет: там обжиты все пригодные планеты и луны.
+// Для таких систем станции и огни городов рисуем всем мирам, кроме газовых гигантов.
+let SETTLED_SYSTEM = false;
+const GAS_GIANT_IDS = new Set(['jupiter', 'saturn', 'uranus', 'neptune']);
+function isSettledWorld(p) {
+    if (!SETTLED_SYSTEM) return false;
+    if (GAS_GIANT_IDS.has(p.id)) return false;
+    return true;
 }
 
+function stationMarkup(p) {
+    if (p.noStation) return '';
+    if (!isSettledWorld(p) && NO_STATION.has(p.id)) return '';
+    // Станции на планетах не рисуем: на карте они выглядели как тёмные круги
+    // на поверхности. Оставляем только данные в карточке планеты.
+    return '';
+}
+
+// огни городов рисуем только там, где есть колонии и атмосфера
+const LIGHTS_OK = new Set(['earth', 'mars', 'moon', 'titan', 'europa', 'ganymede']);
+
 function planetMarkup(p) {
+    // радиус орбиты берём из ТОЙ ЖЕ модели, что двигает планету:
+    // раньше линия рисовалась по табличной шкале, а планета шла по worldcoords,
+    // из-за этого Меркурий уезжал с орбиты на 19 px, Сатурн — на 7 px
+    let r = orbitRadius(p.au);
+    // ОРБИТА ИЗ КАТАЛОГА: та же кривая, что двигает планету (Кеплер).
+    // Эллипс: rx = a, ry = a·√(1−e²), поворот на Ω+ω — планетa лежит на нём по построению.
+    let orbitExtra = '';
+    try {
+        const cb = window.CatalogBridge;
+        if (cb && cb.available && cb.available()) {
+            const b = cb.find(p.id);
+            if (b && b.e !== undefined && b.e !== null) {
+                // ШКАЛА КАК У ПОЗИЦИИ: раньше тут было a*185, а позиция шла по
+                // SceneScale (логарифм) — Плутон уезжал на 6673 px от своей линии
+                const a = (window.SceneScale && window.SceneScale.orbitPx)
+                    ? window.SceneScale.orbitPx(Number(b.a))
+                    : Number(b.a) * 185;
+                const bb = a * Math.sqrt(Math.max(0.01, 1 - Math.pow(Number(b.e), 2)));
+                const rot = (Number(b.om) || 0) + (Number(b.w) || 0);
+                orbitExtra = ' data-orbit="kepler"';
+                // ЛИНИЯ СТРОИТСЯ ПО ТОЙ ЖЕ ФОРМУЛЕ, ЧТО И ПОЗИЦИЯ (WorldCoords.planetAt):
+                // r(nu) = a(1-e²)/(1+e·cos nu), затем ЕДИНАЯ шкала orbitPx.
+                // CSS-эллипс так не может: шкала нелинейная, отсюда были +20 px у Плутона.
+                const scale = (window.SceneScale && window.SceneScale.orbitPx)
+                    ? window.SceneScale.orbitPx : function (v) { return v * 185; };
+                const A = Number(b.a), E = Number(b.e) || 0;
+                // ЛИНИЯ = ТРАССА ТОЙ ЖЕ ФУНКЦИИ, ЧТО ДВИГАЕТ ПЛАНЕТУ:
+                // 200 положений за один период через SceneModel.orbitPosition
+                // (Кеплер + i, Ω, ω). Иначе позиция и линия считаются разными
+                // формулами и расходятся на 8–13 px (Меркурий, Сатурн, Уран).
+                let pts = [];
+                let rMax = 0;
+                const periodMs = Math.max(1000, (Number(p.period) || 365) * 86400000);
+                // ПОЗИЦИЮ В СТАРОМ ВИДЕ ДАЁТ WorldCoords.planetAt (своя шкала),
+                // поэтому линию строим ТЕМ ЖЕ вызовом, а не через SceneModel —
+                // иначе расхождение до 5799 px (Нептун, Плутон).
+                if (window.WorldCoords && window.WorldCoords.planetAt) {
+                    // у вытянутых орбит 200 точек дают «срез» дуги до 44 px
+                    const N = (Number(b.e) || 0) > 0.2 ? 900 : (Number(b.e) || 0) > 0.08 ? 420 : 240;
+                    for (let k = 0; k <= N; k++) {
+                        const t = periodMs * (k / N);
+                        const q = window.WorldCoords.planetAt(p.id, t);
+                        if (!q) continue;
+                        const qx = Number(q.x) || 0, qy = Number(q.y) || 0;
+                        const rr2 = Math.hypot(qx, qy);
+                        if (rr2 > rMax) rMax = rr2;
+                        pts.push((k ? 'L' : 'M') + qx.toFixed(1) + ' ' + qy.toFixed(1));
+                    }
+                }
+                if (pts.length < 3) {
+                    // запасной путь: прежняя формула (если SceneModel не загрузился)
+                    for (let k = 0; k < 200; k++) {
+                        const nu = (k / 200) * Math.PI * 2;
+                        const rr = A * (1 - E * E) / (1 + E * Math.cos(nu));
+                        const rp = scale(rr);
+                        if (rp > rMax) rMax = rp;
+                        pts.push((k ? 'L' : 'M') + (Math.cos(nu) * rp).toFixed(1) + ' ' + (Math.sin(nu) * rp).toFixed(1));
+                    }
+                }
+                const box = Math.max(10, rMax * 2 + 8);
+                if (!(window.WorldCoords && window.WorldCoords.PLANETS && window.WorldCoords.PLANETS[p.id])) {
+                    orbitExtra += ' data-path-pending="1"';
+                }
+                const path = `<svg class="orbit-path" width="${box}" height="${box}" ` +
+                    `style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);overflow:visible;pointer-events:none">` +
+                    `<path d="${pts.join(' ')}" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="4 8"/></svg>`;
+                return `<div class="orbit orbit-kepler"${orbitExtra} data-period="${p.period}" data-epoch="${p.L0}" ` +
+                    `style="width:${box}px;height:${box}px;transform:translate(-50%,-50%);border-radius:50%;">` +
+                    path + planetMarkupInner(p);
+            }
+        }
+    } catch (e) { }
+    const moons = (p.moons || []).map(moonMarkup).join('');
+    const extra = p.id === 'saturn' ? ' saturn' : '';
+    return `<div class="orbit" data-period="${p.period}" data-epoch="${p.L0}" style="width:${r * 2}px;height:${r * 2}px;">` + planetMarkupInner(p);
+}
+
+// внутренность орбиты: планета, луны, подписи — одна на оба варианта
+function planetMarkupInner(p) {
     const r = orbitRadius(p.au);
     const moons = (p.moons || []).map(moonMarkup).join('');
     const extra = p.id === 'saturn' ? ' saturn' : '';
-    return `<div class="orbit" data-period="${p.period}" data-epoch="${p.L0}" style="width:${r * 2}px;height:${r * 2}px;">` +
-        `<div class="planet-wrapper"><div class="planet${extra}" data-rot-period="${p.rotH}" ` +
+    return `<div class="planet-wrapper"><div class="planet${extra}" data-planet-id="${p.id}" data-rot-period="${p.rotH}" ` +
         `style="width:${p.size}px;height:${p.size}px;">` +
         `<div class="planet-surface" style="${planetSurfaceStyle(p)}"></div>` +
         `<div class="planet-shadow"></div>` +
+        `${(LIGHTS_OK.has(p.id) || isSettledWorld(p)) ? '<div class="planet-lights"></div>' : ''}` +
         stationMarkup(p) +
         (moons ? `<div class="moon-system">${moons}</div>` : '') +
         `<div class="tooltip">${p.name}</div>` +
@@ -676,6 +1019,9 @@ function planetMarkup(p) {
 // Перестраивает сцену под конкретную систему: старая разметка (в том числе
 // статическая из Razor) удаляется, поэтому страница может показать любой набор.
 function buildScene(system) {
+    window.__sceneSystem = system;
+    // Кеплер-1 обжита больше ста лет: все луны и пригодные планеты освоены
+    SETTLED_SYSTEM = /^kepler-?1$/i.test(system.id || '');
     const host = document.querySelector('.solar-system');
     if (!host) return null;
     host.querySelectorAll('.orbit, .portal, .system-extra').forEach(el => el.remove());
@@ -705,7 +1051,16 @@ function buildScene(system) {
     // Слой трафика: корабли летают между станциями, а не между планетами.
     let layer = host.querySelector('.fleet-layer');
     if (!layer) { layer = document.createElement('div'); layer.className = 'fleet-layer'; host.appendChild(layer); }
-    layer.innerHTML = system.id === 'sol' ? buildFleetTraffic() : '';
+    // Старый слой флотов рисовал борта по нормализованным 0..1 координатам,
+    // из-за чего они «летали непонятно где». Флоты теперь в #fleet-traffic.
+    layer.innerHTML = '';
+    // гражданский трафик строим сразу при отрисовке системы, а не только в кадре:
+    // иначе у колоний и в поясе астероидов бортов не видно
+    civilBuilt = false;
+    const oldCivil = document.getElementById('civil-traffic');
+    if (oldCivil) oldCivil.remove();
+    civilItems = [];
+    if (system.id === 'sol') { ensureCivilSoon(); tradeBuilt = false; const oldTrade = document.getElementById('trade-traffic'); if (oldTrade) oldTrade.remove(); tradeShips = []; tradePaths = []; buildTradeTraffic(); updateTradeTraffic(); updateFleetTraffic(); }
 
     const sun = host.querySelector('.sun');
     if (sun && system.star) {
@@ -739,13 +1094,579 @@ const TRAFFIC_ROUTES = [
 ];
 
 function buildFleetTraffic() {
-    // Корабли-иконки над планетами убраны: они читались как непонятные объекты.
-    // Остались только подсвеченные торговые маршруты.
-    return TRAFFIC_ROUTES.map((r, i) => `<div class="route-line" data-route="${i}"></div>`).join('');
+    // Кривые траектории рисуем в SVG, корабли — прозрачными иконками.
+    // JPEG-рендеры тут не годятся: у них нет прозрачности и виден чёрный квадрат.
+    const paths = TRAFFIC_ROUTES.map((r, i) => `<path class="traffic-path" data-route="${i}"></path>`).join('');
+    const ships = TRAFFIC_ROUTES.map((r, i) => {
+        const name = (SHIPS[r.ship] && SHIPS[r.ship].name) || r.ship;
+        // тот же треугольник, что у остальных бортов: одинаковый вид у всех кораблей
+        return `<div class="ship-marker ship-marker--traffic" data-route="${i}" ` +
+            `data-art="${r.ship}" ` +
+            `style="background-image:url(${shipArtUrl(r.ship)})" ` +
+            `title="${name} — двойной клик: карточка борта"></div>`;
+    }).join('');
+    return `<svg class="traffic-paths" width="1" height="1" overflow="visible">${paths}</svg>` + ships;
 }
 
 // Позиция станции относительно центра планеты (фиксированный угол).
 const STATION_ANGLE = -Math.PI / 4;
+// Карточка летящего транспорта: что за борт, чем везёт, с какой скоростью идёт.
+// Полёт аппарата в космосе — 3D-сцена на three.js.
+// Корабль — воксельная модель из Models3D, звёзды — по спектральным классам,
+// туманность и планета — спрайты и сфера. Если three.js не загрузился,
+// вызывается openShipFlight2D (canvas-версия).
+function shipFlightShell(index) {
+    const r = TRAFFIC_ROUTES[index];
+    if (!r) return null;
+    const ship = SHIPS[r.ship] || { name: 'Аппарат', cls: '', cargo: 0 };
+    const drive = (typeof DRIVES !== 'undefined' && DRIVES[ship.drive]) ? DRIVES[ship.drive] : { name: '—' };
+    const st = r.state || { vx: 0, vy: 0 };
+    const speedKm = Math.round(Math.hypot(st.vx || 0, st.vy || 0) /
+        (typeof SPEED_UNIT === 'number' ? SPEED_UNIT : 7) * 1000);
+    const from = (planetNodes[r.a] && planetNodes[r.a].data && planetNodes[r.a].data.name) || 'станция';
+    const to = (planetNodes[r.b] && planetNodes[r.b].data && planetNodes[r.b].data.name) || 'станция';
+
+    const old = document.getElementById('ship-flight');
+    if (old) old.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'ship-flight';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:100060;display:flex;align-items:center;justify-content:center;' +
+        'background:rgba(2,4,8,.86);padding:14px';
+    modal.innerHTML =
+        '<div style="position:relative;width:min(880px,96vw);border-radius:18px;overflow:hidden;' +
+        'border:1px solid #1e3a5f;background:#04070d">' +
+        '<canvas id="ship-flight-canvas" style="display:block;width:100%;height:auto"></canvas>' +
+        '<div style="position:absolute;left:0;right:0;bottom:0;padding:14px 18px;' +
+        'background:linear-gradient(rgba(4,7,13,0),rgba(4,7,13,.94));color:#dce8f7;' +
+        'font:14px/1.45 Inter,system-ui,sans-serif">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap">' +
+        '<div><b style="color:#8fd6ff;font-size:17px">' + (ship.name || 'Аппарат') + '</b>' +
+        '<div style="opacity:.75;font-size:12.5px">' + (ship.cls || '') + ' · ' + (drive.name || '') + '</div></div>' +
+        '<div style="text-align:right;font-size:12.5px;opacity:.85">' +
+        '<div>маршрут <b style="color:#ffd05a">' + from + ' → ' + to + '</b></div>' +
+        '<div>скорость <b style="color:#3ec97a">' + speedKm + ' км/с</b> · трюм ' + (ship.cargo || '—') + ' т</div>' +
+        '</div></div></div>' +
+        '<button id="sf-close" style="position:absolute;right:10px;top:10px;border:none;border-radius:9px;' +
+        'padding:6px 12px;background:rgba(20,30,46,.85);color:#dce8f7;cursor:pointer;font-size:15px">✕</button>' +
+        '</div>';
+    document.body.appendChild(modal);
+    return { modal: modal, ship: ship, route: r, world: from };
+}
+
+function openShipFlight(index) {
+    import('/lib/three/three.module.js')
+        .then(function (THREE) {
+            if (!window.Models3D || !window.Models3D.buildShip) throw new Error('нет Models3D');
+            openShipFlight3D(index, THREE);
+        })
+        .catch(function (e) {
+            console.warn('3D-полёт недоступен, рисую 2D:', e && e.message);
+            openShipFlight2D(index);
+        });
+}
+
+function openShipFlight3D(index, THREE) {
+    const shell = shipFlightShell(index);
+    if (!shell) return;
+
+    const canvas = document.getElementById('ship-flight-canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x04060c);
+
+    const camera = new THREE.PerspectiveCamera(52, 1.7, 0.1, 2000);
+    camera.position.set(0, 0, 34);
+
+    // ---------- звёзды по спектральным классам ----------
+    // O/B — голубовато-белые, A — белые, G — жёлтые, K — оранжевые, M — красные.
+    const CLASSES = [
+        { c: [0.72, 0.82, 1.00], w: 0.06 },
+        { c: [0.90, 0.94, 1.00], w: 0.14 },
+        { c: [1.00, 1.00, 1.00], w: 0.30 },
+        { c: [1.00, 0.96, 0.86], w: 0.28 },
+        { c: [1.00, 0.84, 0.68], w: 0.16 },
+        { c: [1.00, 0.72, 0.60], w: 0.06 }
+    ];
+
+    function makeStars(count, spread, sizeMin, sizeMax) {
+        const pos = new Float32Array(count * 3);
+        const col = new Float32Array(count * 3);
+        for (let i = 0; i < count; i++) {
+            // равномерно по сфере, но с уплотнением к плоскости Галактики
+            let u = Math.random() * 2 - 1;
+            if (Math.random() < 0.55) u *= 0.18;          // диск Млечного Пути
+            const phi = Math.random() * Math.PI * 2;
+            const r = spread * (0.75 + Math.random() * 0.25);
+            const s = Math.sqrt(1 - u * u);
+            pos[i * 3] = Math.cos(phi) * s * r;
+            pos[i * 3 + 1] = u * r;
+            pos[i * 3 + 2] = Math.sin(phi) * s * r;
+
+            // яркость по степенному закону: ярких мало
+            const b = 0.25 + Math.pow(Math.random(), 2.6) * 0.75;
+            let acc = 0, pick = CLASSES[CLASSES.length - 1];
+            const rnd = Math.random();
+            for (let k = 0; k < CLASSES.length; k++) {
+                acc += CLASSES[k].w;
+                if (rnd <= acc) { pick = CLASSES[k]; break; }
+            }
+            col[i * 3] = pick.c[0] * b;
+            col[i * 3 + 1] = pick.c[1] * b;
+            col[i * 3 + 2] = pick.c[2] * b;
+        }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        const m = new THREE.PointsMaterial({
+            size: (sizeMin + sizeMax) / 2, sizeAttenuation: false,
+            vertexColors: true, transparent: true, opacity: 0.95,
+            depthWrite: false, blending: THREE.AdditiveBlending
+        });
+        return new THREE.Points(g, m);
+    }
+
+    // Четыре слоя разного размера: так звёзды выглядят разнояркими, а не «горохом».
+    const starLayers = [
+        { pts: makeStars(2400, 260, 0.7, 0.7), speed: 1.8, wrap: 520, base: 0.9, ph: 0.0 },
+        { pts: makeStars(900, 190, 1.1, 1.1), speed: 3.6, wrap: 380, base: 0.95, ph: 1.2 },
+        { pts: makeStars(320, 130, 1.7, 1.7), speed: 6.2, wrap: 260, base: 1.0, ph: 2.4 },
+        { pts: makeStars(90, 95, 2.6, 2.6), speed: 9.0, wrap: 190, base: 1.0, ph: 3.6 }
+    ];
+    starLayers.forEach(L => scene.add(L.pts));
+    const starsNear = starLayers[2].pts;
+    const starsFar = starLayers[0].pts;
+
+    // ---------- полоса Млечного Пути ----------
+    (function milkyWay() {
+        const cv = document.createElement('canvas');
+        cv.width = 1024; cv.height = 256;
+        const cx = cv.getContext('2d');
+        for (let i = 0; i < 5200; i++) {
+            const x = Math.random() * 1024;
+            const g = (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
+            const y = 128 + g * 52;
+            const a = 0.05 + Math.random() * 0.22;
+            cx.fillStyle = 'rgba(200,215,255,' + a + ')';
+            cx.fillRect(x, y, 1 + Math.random(), 1 + Math.random());
+        }
+        const grd = cx.createLinearGradient(0, 0, 0, 256);
+        grd.addColorStop(0, 'rgba(120,150,220,0)');
+        grd.addColorStop(0.5, 'rgba(120,150,220,0.12)');
+        grd.addColorStop(1, 'rgba(120,150,220,0)');
+        cx.fillStyle = grd;
+        cx.fillRect(0, 0, 1024, 256);
+
+        // мягкая маска по краям, иначе виден прямоугольник спрайта
+        cx.globalCompositeOperation = 'destination-in';
+        const mask = cx.createRadialGradient(512, 128, 40, 512, 128, 520);
+        mask.addColorStop(0, 'rgba(0,0,0,1)');
+        mask.addColorStop(0.55, 'rgba(0,0,0,0.85)');
+        mask.addColorStop(1, 'rgba(0,0,0,0)');
+        cx.fillStyle = mask;
+        cx.fillRect(0, 0, 1024, 256);
+        cx.globalCompositeOperation = 'source-over';
+
+        const tex = new THREE.CanvasTexture(cv);
+        const band = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: tex, transparent: true, depthWrite: false,
+            blending: THREE.AdditiveBlending, opacity: 0.55
+        }));
+        band.scale.set(420, 105, 1);
+        band.position.set(-30, 40, -220);
+        band.material.rotation = -0.22;
+        scene.add(band);
+    })();
+
+    // ---------- туманность ----------
+    function nebulaTexture(inner, outer) {
+        const cv = document.createElement('canvas');
+        cv.width = cv.height = 256;
+        const cx = cv.getContext('2d');
+        const grd = cx.createRadialGradient(128, 128, 6, 128, 128, 128);
+        grd.addColorStop(0, inner);
+        grd.addColorStop(0.45, outer);
+        grd.addColorStop(1, 'rgba(0,0,0,0)');
+        cx.fillStyle = grd;
+        cx.fillRect(0, 0, 256, 256);
+        const t = new THREE.CanvasTexture(cv);
+        return t;
+    }
+    const neb1 = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: nebulaTexture('rgba(90,140,255,0.30)', 'rgba(40,70,160,0.10)'),
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.9
+    }));
+    neb1.scale.set(150, 150, 1);
+    neb1.position.set(-52, 26, -120);
+    scene.add(neb1);
+
+    const neb2 = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: nebulaTexture('rgba(190,120,220,0.20)', 'rgba(90,50,130,0.08)'),
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.75
+    }));
+    neb2.scale.set(120, 120, 1);
+    neb2.position.set(60, -26, -130);
+    scene.add(neb2);
+
+    // ---------- планета на фоне ----------
+    const worldSlug = {
+        'Юпитер': 'jupiter', 'Сатурн': 'saturn', 'Марс': 'mars', 'Земля': 'earth',
+        'Луна': 'moon', 'Венера': 'venus', 'Меркурий': 'mercury', 'Уран': 'uranus',
+        'Нептун': 'neptune', 'Титан': 'titan', 'Европа': 'europa', 'Ио': 'io'
+    }[shell.world] || 'jupiter';
+    const planetGeo = new THREE.SphereGeometry(26, 64, 32);
+    const planetMat = new THREE.MeshStandardMaterial({ color: 0x223a55, roughness: 1, metalness: 0 });
+    const planet = new THREE.Mesh(planetGeo, planetMat);
+    planet.position.set(-34, -34, -80);
+    planet.rotation.z = 0.25;
+    scene.add(planet);
+
+    new THREE.TextureLoader().load('/images/tex/' + worldSlug + '.webp', function (tex) {
+        if (THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+        planetMat.map = tex;
+        planetMat.color.set(0xffffff);
+        planetMat.needsUpdate = true;
+    });
+
+    const sunLight = new THREE.DirectionalLight(0xfff2d8, 2.4);
+    sunLight.position.set(40, 30, 20);
+    scene.add(sunLight);
+
+    // холодный контровой свет: подсвечивает борт корабля, иначе корпус читается силуэтом
+    const rimLight = new THREE.DirectionalLight(0x8fc4ff, 1.6);
+    rimLight.position.set(-30, -10, -25);
+    scene.add(rimLight);
+
+    scene.add(new THREE.AmbientLight(0x2a3a52, 1.05));
+
+    // свечение атмосферы планеты
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: nebulaTexture('rgba(120,180,255,0.45)', 'rgba(40,90,180,0.12)'),
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+    }));
+    halo.scale.set(96, 96, 1);
+    halo.position.copy(planet.position);
+    scene.add(halo);
+
+    // ---------- корабль ----------
+    let shipGroup = null;
+    try {
+        shipGroup = window.Models3D.buildShip(shell.route.ship, THREE);
+    } catch (e) { shipGroup = null; }
+    if (!shipGroup) return openShipFlight2D(index);
+
+    // нормализуем размер: любой корабль вписываем в ~16 единиц
+    const box = new THREE.Box3().setFromObject(shipGroup);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const maxSide = Math.max(size.x, size.y, size.z) || 1;
+    shipGroup.scale.setScalar(16 / maxSide);
+    const holder = new THREE.Group();
+    holder.add(shipGroup);
+    // модель строится «носом вправо» по X — доворачиваем и поднимаем к центру
+    shipGroup.position.sub(new THREE.Vector3(
+        (box.min.x + box.max.x) / 2 * (16 / maxSide),
+        (box.min.y + box.max.y) / 2 * (16 / maxSide),
+        (box.min.z + box.max.z) / 2 * (16 / maxSide)
+    ));
+    holder.position.set(2, 1, 0);
+    scene.add(holder);
+
+    // двигатель: два светящихся спрайта и точечный свет
+    const flameTex = nebulaTexture('rgba(180,230,255,0.95)', 'rgba(70,140,255,0.35)');
+    const flame = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: flameTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+    }));
+    flame.position.set(-9, 0, 0);
+    flame.scale.set(14, 9, 1);
+    holder.add(flame);
+
+    const flameCore = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: flameTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+    }));
+    flameCore.position.set(-8.4, 0, 0);
+    flameCore.scale.set(6, 4, 1);
+    holder.add(flameCore);
+
+    const engineLight = new THREE.PointLight(0x7fc4ff, 40, 60);
+    engineLight.position.set(-9, 0, 0);
+    holder.add(engineLight);
+
+    // ---------- размер и анимация ----------
+    let W = 880, H = 480;
+    function resize() {
+        W = canvas.clientWidth || 880;
+        H = Math.round(W * 0.54);
+        canvas.style.height = H + 'px';
+        renderer.setSize(W, H, false);
+        camera.aspect = W / H;
+        camera.updateProjectionMatrix();
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    let raf = 0, last = performance.now(), t = 0;
+    function loop(now) {
+        raf = requestAnimationFrame(loop);
+        const dt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        t += dt;
+
+        // звёзды уходят влево: корабль летит вправо; у каждого слоя своя скорость и мерцание
+        starLayers.forEach(L => {
+            L.pts.position.x -= dt * L.speed;
+            if (L.pts.position.x < -L.wrap / 2) L.pts.position.x += L.wrap;
+            L.pts.material.opacity = L.base * (0.94 + Math.sin(t * (1.3 + L.speed * 0.12) + L.ph) * 0.06);
+        });
+
+        // туманность еле дышит
+        neb1.material.opacity = 0.85 + Math.sin(t * 0.5) * 0.08;
+        neb2.material.opacity = 0.68 + Math.cos(t * 0.42) * 0.07;
+
+        // корабль покачивается
+        holder.position.y = 1 + Math.sin(t * 1.25) * 0.35;
+        holder.rotation.z = Math.sin(t * 0.85) * 0.045;
+        holder.rotation.y = -0.42 + Math.sin(t * 0.23) * 0.18;   // лёгкий вид в 3/4
+        holder.rotation.x = Math.sin(t * 0.6 + 2) * 0.03;
+
+        // пламя двигателя мерцает
+        const flick = 0.85 + Math.random() * 0.3;
+        flame.scale.set(14 * flick, 9 * flick, 1);
+        flameCore.scale.set(6 * flick, 4 * flick, 1);
+        engineLight.intensity = 34 * flick;
+
+        camera.position.x = Math.sin(t * 0.25) * 1.6;
+        camera.lookAt(0, 0, 0);
+
+        renderer.render(scene, camera);
+    }
+    raf = requestAnimationFrame(loop);
+
+    const close = () => {
+        cancelAnimationFrame(raf);
+        window.removeEventListener('resize', resize);
+        renderer.dispose();
+        if (shell.modal.parentNode) shell.modal.remove();
+    };
+    document.getElementById('sf-close').onclick = close;
+    shell.modal.onclick = (e) => { if (e.target === shell.modal) close(); };
+}
+
+// Полёт аппарата в космосе: звёзды, туманность, двигатель, трасса.
+// Открывается двойным кликом по кораблю на карте.
+function openShipFlight2D(index) {
+    const r = TRAFFIC_ROUTES[index];
+    if (!r) return;
+    const ship = SHIPS[r.ship] || { name: 'Аппарат', cls: '', cargo: 0 };
+    const drive = (typeof DRIVES !== 'undefined' && DRIVES[ship.drive]) ? DRIVES[ship.drive] : { name: '—' };
+    const st = r.state || { vx: 0, vy: 0 };
+    const speedKm = Math.round(Math.hypot(st.vx || 0, st.vy || 0) / (typeof SPEED_UNIT === 'number' ? SPEED_UNIT : 7) * 1000);
+    const from = (planetNodes[r.a] && planetNodes[r.a].data && planetNodes[r.a].data.name) || 'станция';
+    const to = (planetNodes[r.b] && planetNodes[r.b].data && planetNodes[r.b].data.name) || 'станция';
+
+    const old = document.getElementById('ship-flight');
+    if (old) old.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'ship-flight';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:100060;display:flex;align-items:center;justify-content:center;' +
+        'background:rgba(2,4,8,.86);padding:14px';
+    modal.innerHTML =
+        '<div style="position:relative;width:min(860px,96vw);border-radius:18px;overflow:hidden;' +
+        'border:1px solid #1e3a5f;background:#04070d">' +
+        '<canvas id="ship-flight-canvas" style="display:block;width:100%;height:auto"></canvas>' +
+        '<div style="position:absolute;left:0;right:0;bottom:0;padding:14px 18px;' +
+        'background:linear-gradient(rgba(4,7,13,0),rgba(4,7,13,.94));color:#dce8f7;' +
+        'font:14px/1.45 Inter,system-ui,sans-serif">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap">' +
+        '<div><b style="color:#8fd6ff;font-size:17px">' + (ship.name || 'Аппарат') + '</b>' +
+        '<div style="opacity:.75;font-size:12.5px">' + (ship.cls || '') + ' · ' + (drive.name || '') + '</div></div>' +
+        '<div style="text-align:right;font-size:12.5px;opacity:.85">' +
+        '<div>маршрут <b style="color:#ffd05a">' + from + ' → ' + to + '</b></div>' +
+        '<div>скорость <b style="color:#3ec97a">' + speedKm + ' км/с</b> · трюм ' + (ship.cargo || '—') + ' т</div>' +
+        '</div></div></div>' +
+        '<button id="sf-close" style="position:absolute;right:10px;top:10px;border:none;border-radius:9px;' +
+        'padding:6px 12px;background:rgba(20,30,46,.85);color:#dce8f7;cursor:pointer;font-size:15px">✕</button>' +
+        '</div>';
+    document.body.appendChild(modal);
+
+    const canvas = document.getElementById('ship-flight-canvas');
+    const ctx = canvas.getContext('2d');
+    const art = new Image();
+    art.src = shipArt(r.ship);
+
+    let W = 860, H = 460;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    function resize() {
+        W = canvas.clientWidth || 860;
+        H = Math.round(W * 0.54);
+        canvas.width = Math.round(W * dpr);
+        canvas.height = Math.round(H * dpr);
+        canvas.style.height = H + 'px';
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    // звёзды: три слоя с разной скоростью — даёт параллакс
+    const stars = [];
+    for (let i = 0; i < 260; i++) {
+        const layer = i % 3;
+        stars.push({
+            x: Math.random() * W, y: Math.random() * H,
+            r: 0.4 + layer * 0.45 + Math.random() * 0.5,
+            v: 12 + layer * 34 + Math.random() * 18,
+            a: 0.35 + layer * 0.2 + Math.random() * 0.3
+        });
+    }
+    // частицы выхлопа
+    const sparks = [];
+    let t = 0, raf = 0, last = performance.now();
+
+    function draw(dt) {
+        t += dt;
+        // фон: глубина космоса
+        const g = ctx.createLinearGradient(0, 0, W, H);
+        g.addColorStop(0, '#05080f');
+        g.addColorStop(0.55, '#070c18');
+        g.addColorStop(1, '#0a0f1e');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+
+        // туманность — два мягких пятна, медленно дышат
+        const neb = ctx.createRadialGradient(W * 0.28, H * 0.3, 10, W * 0.28, H * 0.3, W * 0.5);
+        neb.addColorStop(0, 'rgba(70,110,190,' + (0.10 + 0.03 * Math.sin(t * 0.7)) + ')');
+        neb.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = neb;
+        ctx.fillRect(0, 0, W, H);
+        const neb2 = ctx.createRadialGradient(W * 0.78, H * 0.68, 10, W * 0.78, H * 0.68, W * 0.42);
+        neb2.addColorStop(0, 'rgba(150,90,160,' + (0.07 + 0.02 * Math.cos(t * 0.9)) + ')');
+        neb2.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = neb2;
+        ctx.fillRect(0, 0, W, H);
+
+        // звёзды летят влево — аппарат будто движется вправо
+        stars.forEach(st2 => {
+            st2.x -= st2.v * dt;
+            if (st2.x < -4) { st2.x = W + 4; st2.y = Math.random() * H; }
+            ctx.globalAlpha = st2.a;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(st2.x, st2.y, st2.r, 0, Math.PI * 2);
+            ctx.fill();
+            // штрих скорости у ближних
+            if (st2.v > 40) {
+                ctx.globalAlpha = st2.a * 0.5;
+                ctx.strokeStyle = '#cfe0ff';
+                ctx.lineWidth = st2.r * 0.8;
+                ctx.beginPath();
+                ctx.moveTo(st2.x, st2.y);
+                ctx.lineTo(st2.x + st2.v * dt * 2.2, st2.y);
+                ctx.stroke();
+            }
+        });
+        ctx.globalAlpha = 1;
+
+        // дальняя планета снизу
+        const pr = W * 0.34;
+        const pg = ctx.createRadialGradient(W * 0.18, H + pr * 0.55, pr * 0.2, W * 0.18, H + pr * 0.55, pr);
+        pg.addColorStop(0, 'rgba(120,165,225,0.85)');
+        pg.addColorStop(0.55, 'rgba(40,78,140,0.8)');
+        pg.addColorStop(1, 'rgba(4,8,16,0)');
+        ctx.fillStyle = pg;
+        ctx.beginPath();
+        ctx.arc(W * 0.18, H + pr * 0.55, pr, 0, Math.PI * 2);
+        ctx.fill();
+
+        // аппарат
+        const cx = W * 0.56, cy = H * 0.44 + Math.sin(t * 1.6) * 4;
+        const size = Math.min(190, W * 0.24);
+        // свечение двигателя
+        const glowR = size * 0.55;
+        const eg = ctx.createRadialGradient(cx - size * 0.42, cy, 2, cx - size * 0.42, cy, glowR);
+        eg.addColorStop(0, 'rgba(120,200,255,0.55)');
+        eg.addColorStop(0.4, 'rgba(70,140,255,0.18)');
+        eg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = eg;
+        ctx.beginPath();
+        ctx.arc(cx - size * 0.42, cy, glowR, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (art.complete && art.naturalWidth) {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(Math.PI / 2 + Math.sin(t * 0.8) * 0.03);   // «носом вправо» + лёгкий крен
+            const scale = size / Math.max(art.naturalWidth, art.naturalHeight);
+            ctx.drawImage(art, -art.naturalWidth * scale / 2, -art.naturalHeight * scale / 2,
+                art.naturalWidth * scale, art.naturalHeight * scale);
+            ctx.restore();
+        } else {
+            ctx.fillStyle = 'rgba(140,180,220,0.6)';
+            ctx.beginPath();
+            ctx.ellipse(cx, cy, size * 0.3, size * 0.12, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // штрихи скорости: короткие линии позади аппарата
+        ctx.strokeStyle = 'rgba(150,190,255,0.20)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 12; i++) {
+            const sy = cy - size * 0.45 + (i / 11) * size * 0.9;
+            const off = ((t * 260 + i * 61) % (W * 0.9));
+            const sx = cx - size * 0.5 - off;
+            if (sx < -40) continue;
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(sx + 34, sy);
+            ctx.stroke();
+        }
+
+        // частицы выхлопа
+        if (Math.random() < 0.85) {
+            sparks.push({
+                x: cx - size * 0.44, y: cy + (Math.random() - 0.5) * size * 0.12,
+                vx: -80 - Math.random() * 120, vy: (Math.random() - 0.5) * 26,
+                life: 0.5 + Math.random() * 0.5, max: 1, r: 0.8 + Math.random() * 1.6
+            });
+        }
+        for (let i = sparks.length - 1; i >= 0; i--) {
+            const p = sparks[i];
+            p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
+            if (p.life <= 0) { sparks.splice(i, 1); continue; }
+            ctx.globalAlpha = Math.max(0, p.life);
+            ctx.fillStyle = i % 3 === 0 ? '#9fd8ff' : '#4f8ef7';
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    function loop(now) {
+        raf = requestAnimationFrame(loop);
+        const dt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        draw(dt);
+    }
+    raf = requestAnimationFrame(loop);
+
+    const close = () => {
+        cancelAnimationFrame(raf);
+        window.removeEventListener('resize', resize);
+        modal.remove();
+    };
+    document.getElementById('sf-close').onclick = close;
+    modal.onclick = (e) => { if (e.target === modal) close(); };
+}
+
+
+// старый вид карточки оставлен как данные внутри анимации
+function openTrafficCard(index) {
+    openShipFlight(index);
+}
+
 function stationPoint(x, y, size) {
     const d = size / 2 + STATION_DIST;
     return { x: x + Math.cos(STATION_ANGLE) * d, y: y + Math.sin(STATION_ANGLE) * d };
@@ -760,71 +1681,56 @@ function updateTraffic(dtMs) {
         const A = planetNodes[route.a], B = planetNodes[route.b];
         if (!el || !A || !B || A.x === undefined || B.x === undefined) return;
 
+        // станции у планет: трасса идёт по дуге, чтобы не резать систему по центру
         const start = stationPoint(A.x, A.y, A.size);
-        const target = stationPoint(B.x, B.y, B.size);
-        const line = routeLines[i];
-        if (line) {
-            const mx = (start.x + target.x) / 2, my = (start.y + target.y) / 2;
-            const len = Math.hypot(target.x - start.x, target.y - start.y);
-            const ang = Math.atan2(target.y - start.y, target.x - start.x) * 180 / Math.PI;
-            line.style.width = len.toFixed(1) + 'px';
-            line.style.transform = `translate(${mx}px, ${my}px) translate(-50%, -50%) rotate(${ang}deg)`;
+        const end = stationPoint(B.x, B.y, B.size);
+        const dx = end.x - start.x, dy = end.y - start.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const nx = dy / len, ny = -dx / len;
+        const midX = (start.x + end.x) / 2, midY = (start.y + end.y) / 2;
+        const outward = (nx * midX + ny * midY) >= 0 ? 1 : -1;
+        const bulge = Math.min(70, Math.max(10, len * 0.26)) * outward;
+        const cx = midX + nx * bulge;
+        const cy = midY + ny * bulge;
+
+        if (route.progress === undefined) route.progress = 0.15;
+        const durGame = Math.max(1200, Math.min(30000, len * 40));
+        if (route.lastSim === undefined) route.lastSim = simulatedTime;
+        const dGame = Math.max(0, simulatedTime - route.lastSim);
+        route.lastSim = simulatedTime;
+        route.progress += dGame / 1000 / durGame;
+
+        if (route.progress >= 1) {
+            if (!route.dockedUntil) {
+                route.dockedUntil = Date.now() + 1600;
+                route.progress = 1;
+            } else if (Date.now() > route.dockedUntil) {
+                route.a = route.b;
+                route.b = (route.b + 2) % planetNodes.length;
+                route.dockedUntil = 0;
+                route.progress = 0;
+            }
         }
-
-        // состояние корабля: позиция, скорость, курс
-        let st = route.state;
-        if (!st) {
-            st = route.state = { x: start.x, y: start.y, vx: 0, vy: 0, ship: route.ship };
+        const t = Math.min(1, route.progress);
+        const drawPath = route.progress < 1;
+        const pEl = routePaths[i];
+        if (pEl) {
+            pEl.setAttribute('d', `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${end.x.toFixed(1)} ${end.y.toFixed(1)}`);
+            pEl.style.opacity = drawPath ? '0.45' : '0';
         }
-
-        const drive = effectiveDrive(SHIPS[route.ship].drive);
-        const aMax = drive.accel * SPEED_UNIT;
-        const vMax = drive.vmax * SPEED_UNIT;
-
-        let dx = target.x - st.x, dy = target.y - st.y;
-        const dist = Math.hypot(dx, dy) || 0.001;
-        const ux = dx / dist, uy = dy / dist;
-
-        // Тормозной путь при текущей скорости сближения.
-        const vClose = st.vx * ux + st.vy * uy;
-        const brakeDist = (vClose * vClose) / (2 * aMax);
-        const thrustSign = (dist < brakeDist + 2) ? -1 : 1;   // вторая половина пути — торможение
-
-        let ax = thrustSign * aMax * ux;
-        let ay = thrustSign * aMax * uy;
-
-        // Гравитация: суммируем притяжение всех тел системы.
-        for (let k = 0; k < planetNodes.length; k++) {
-            const n = planetNodes[k];
-            if (n.x === undefined) continue;
-            const gx = n.x - st.x, gy = n.y - st.y;
-            const d2 = gx * gx + gy * gy;
-            const d = Math.sqrt(d2);
-            if (d < 3) continue;
-            const g = (GRAV_K * (n.size || 10)) / Math.max(d2, 16);
-            ax += g * gx / d;
-            ay += g * gy / d;
+        if (route.dockedUntil && Date.now() < route.dockedUntil) {
+            el.style.opacity = '0.18';
+            return;
         }
-
-        st.vx += ax * dt;
-        st.vy += ay * dt;
-
-        const speed = Math.hypot(st.vx, st.vy);
-        if (speed > vMax) { st.vx *= vMax / speed; st.vy *= vMax / speed; }
-
-        st.x += st.vx * dt;
-        st.y += st.vy * dt;
-
-        // Прибыли к станции — меняем маршрут на обратный.
-        if (dist < 6) {
-            route.a = route.b;
-            route.b = (route.b + 2) % planetNodes.length;
-            st.vx *= 0.2; st.vy *= 0.2;
+        const mt = 1 - t;
+        const px = mt * mt * start.x + 2 * mt * t * cx + t * t * end.x;
+        const py = mt * mt * start.y + 2 * mt * t * cy + t * t * end.y;
+        const tx = 2 * mt * (cx - start.x) + 2 * t * (end.x - cx);
+        const ty = 2 * mt * (cy - start.y) + 2 * t * (end.y - cy);
+        const heading = Math.atan2(ty, tx) * 180 / Math.PI + 90;
+        if (!scenePublish('traffic-' + i, el, { x: px, y: py, ang: heading, opacity: 0.95 })) {
+            legacyPose(el, px, py, heading, { opacity: 0.95 });
         }
-
-        const heading = Math.atan2(st.vy, st.vx) * 180 / Math.PI;
-        el.style.transform = `translate(${st.x}px, ${st.y}px) translate(-50%, -50%) rotate(${heading}deg)`;
-        el.style.opacity = String(0.45 + 0.55 * Math.min(1, Math.hypot(st.vx, st.vy) / (vMax * 0.6)));
     });
 }
 
@@ -954,10 +1860,10 @@ const NPC_AGENTS = [
     { id: 'a4', name: 'Верфь Глизе 581', kind: 'industry', base: 'Глизе 581 · док', spec: 'steel', age: 100, pop: 344000000, credits: 300000, ships: 8, miners: 4, buildings: 7, stock: 2800, wealth: 300000 },
     { id: 'a5', name: 'Станция TRAPPIST-1', kind: 'trade', base: 'TRAPPIST-1 · орбита', spec: 'chips', age: 100, pop: 802000000, credits: 230000, ships: 6, miners: 3, buildings: 5, stock: 1900, wealth: 230000 },
 
-    // --- Кеплер-1: молодая система, заселена 20 лет назад ---
-    { id: 'k1', name: 'Первый посад Кеплер-1', kind: 'farm', base: 'Кеплер-1 · купола', spec: 'grain', age: 20, credits: 42000, ships: 2, miners: 1, buildings: 2, stock: 700, wealth: 42000 },
-    { id: 'k2', name: 'Артель Кеплер-1', kind: 'mine', base: 'Кеплер-1 · шахты', spec: 'steel', age: 20, credits: 38000, ships: 2, miners: 2, buildings: 2, stock: 900, wealth: 38000 },
-    { id: 'k3', name: 'Станция Кеплер-1', kind: 'trade', base: 'Кеплер-1 · орбита', spec: 'chips', age: 20, credits: 55000, ships: 3, miners: 1, buildings: 1, stock: 500, wealth: 55000 },
+    // --- Кеплер-1: заселена больше ста лет назад, все луны и пригодные миры обжиты ---
+    { id: 'k1', name: 'Первый посад Кеплер-1', kind: 'farm', base: 'Кеплер-1 · купола', spec: 'grain', age: 120, credits: 42000, ships: 2, miners: 1, buildings: 2, stock: 700, wealth: 42000 },
+    { id: 'k2', name: 'Артель Кеплер-1', kind: 'mine', base: 'Кеплер-1 · шахты', spec: 'steel', age: 120, credits: 38000, ships: 2, miners: 2, buildings: 2, stock: 900, wealth: 38000 },
+    { id: 'k3', name: 'Станция Кеплер-1', kind: 'trade', base: 'Кеплер-1 · орбита', spec: 'chips', age: 120, credits: 55000, ships: 3, miners: 1, buildings: 1, stock: 500, wealth: 55000 },
     { id: 'p2', name: 'Барон Колец', kind: 'pirate', base: 'Сатурн · кольца', spec: 'ice', age: 30, credits: 90000, ships: 5, miners: 2, buildings: 2, stock: 300, wealth: 90000, raids: 0 }
 ];
 
@@ -967,7 +1873,14 @@ let npcAccum = 0;
 const MINER_COST = 20000, BUILDING_COST = 50000;
 
 function npcLog(text) {
-    NPC_EVENTS.unshift({ t: new Date().toLocaleTimeString('ru-RU'), text: text });
+    // одно и то же событие повторялось до восьми раз подряд — склеиваем в счётчик
+    const last = NPC_EVENTS[0];
+    if (last && last.text === text) {
+        last.count = (last.count || 1) + 1;
+        last.t = new Date().toLocaleTimeString('ru-RU');
+        return;
+    }
+    NPC_EVENTS.unshift({ t: new Date().toLocaleTimeString('ru-RU'), text: text, count: 1 });
     if (NPC_EVENTS.length > 40) NPC_EVENTS.pop();
 }
 
@@ -1284,6 +2197,8 @@ const WORLDS = [
       produces: { steel: 1, copper: 1, nickel: 1, silver: 1, gold: 1, chondrite: 1, quartz: 0.8 },
       needs: { grain: 1, water: 0.8, chips: 0.6, kerosene: 0.8, polymer: 0.7 } }
 ];
+window.WORLDS = WORLDS;
+
 
 // Логистика: вся торговля мира идёт через его орбитальный узел, а не с поверхности.
 // Земля — через Луну (там биржа), Марс — через Фобос и Деймос, Пояс — через Цереру
@@ -1424,16 +2339,24 @@ function renderMarket() {
     const body = document.getElementById('market-body');
     if (!body || !currentUser) return;
     ensureFleet(currentUser);
+    // Подтягиваем настоящие цены NPC-биржи: иначе в таблице одна цена,
+    // а списывается другая.
+    if (!window.__npcPrices) {
+        fetch('/api/npcmarket/quote').then(function (r) { return r.json(); }).then(function (res) {
+            window.__npcPrices = (res && res.prices) || {};
+            renderMarket();
+        }).catch(function () { window.__npcPrices = {}; });
+    }
     const rows = MARKET_GOODS.map(id => {
         const info = RESOURCES[id];
-        const p = marketPrice(id);
+        const npc = (window.__npcPrices || {})[id];
+        const p = npc ? { price: npc.buy, factor: 1 } : marketPrice(id);
         const owned = currentUser.resources[id] || 0;
         const trend = p.factor > 1.15 ? 'дефицит ↑' : p.factor < 0.85 ? 'избыток ↓' : 'ровно';
         const cls = p.factor > 1.15 ? 'def' : p.factor < 0.85 ? 'sur' : '';
         return `<tr>
-            <td>${info.icon} ${info.name}</td>
-            <td class="num">${info.price}</td>
-            <td class="num ${cls}">${p.price.toLocaleString()}</td>
+            <td>${info.icon ? info.icon + ' ' : ''}${info.name}</td>
+            <td class="num ${cls}">${Number(p.price).toFixed(2)}</td>
             <td>${trend}</td>
             <td class="num">${owned.toLocaleString()}</td>
             <td class="mkt-act">
@@ -1442,7 +2365,11 @@ function renderMarket() {
             </td></tr>`;
     }).join('');
 
-    const pop = WORLDS.map(w => `<span>${w.name}: <b>${(w.pop / 1e9).toFixed(1)} млрд</b></span>`).join('');
+    // Только обитаемые миры: у лун без населения было «0.0 млрд» и список растягивался.
+    // «0.0 млрд» у лун заменяем на миллионы: 12 млн читается лучше, чем 0.0 млрд
+    const fmtPop = (v) => (v >= 1e9 ? (v / 1e9).toFixed(1) + ' млрд' : Math.round(v / 1e6) + ' млн');
+    const pop = WORLDS.filter(w => (w.pop || 0) >= 1e6)
+        .map(w => `<span>${w.name}: <b>${fmtPop(w.pop)}</b></span>`).join('');
     const routes = ['earth', 'mars', 'belt'].map(w => {
         const L = LOGISTICS[w];
         const lift = elevatorHours(w);
@@ -1454,21 +2381,32 @@ function renderMarket() {
         return `<div class="route-row"><span>${WORLDS.find(x => x.id === w).name} → Врата</span>` +
             `<b>${h < 24 ? h.toFixed(1) + ' ч' : (h / 24).toFixed(1) + ' сут'}</b><i>переход в другую систему — мгновенно</i></div>`;
     }).join('');
+    // Биржа стоит на луне мира-владельца. У миров без биржи подпись раньше была
+    // «undefined» — теперь показываем только те, где торговать реально можно.
     const EXCHANGES = { earth: 'Луна', mars: 'Фобос', belt: 'Церера' };
-    const tabs = WORLDS.map(w => `<button class="mkt-tab ${w.id === marketWorld ? 'active' : ''}" onclick="setMarketWorld('${w.id}')">${w.name} · ${EXCHANGES[w.id]}</button>`).join('');
+    const hubOf = (w) => {
+        if (EXCHANGES[w.id]) return EXCHANGES[w.id];
+        const L = LOGISTICS[w.id];
+        return (L && L.hub) ? L.hub : null;
+    };
+    const tradeWorlds = WORLDS.filter(w => hubOf(w));
+    const tabs = tradeWorlds.map(w =>
+        `<button class="mkt-tab ${w.id === marketWorld ? 'active' : ''}" ` +
+        `onclick="setMarketWorld('${w.id}')">${w.name} · ${hubOf(w)}</button>`).join('');
     const arts = (currentUser.artifacts || []).map((a, i) =>
         `<div class="mkt-art"><span><b>${a.name}</b> · ${a.kind}</span>
          <button class="auth-btn" style="width:auto;padding:4px 10px;margin:0" onclick="sellArtifact(${i})">Продать за ${a.crystals} крст</button></div>`
     ).join('') || '<div class="mkt-art muted">артефактов нет — ищите по адресам на карте</div>';
     const artifactsBlock = `<h3 class="npc-log-title">Артефакты предыдущих цивилизаций</h3><div class="mkt-arts">${arts}</div>`;
     body.innerHTML = `<div class="mkt-tabs">${tabs}</div>
-        <div class="mkt-summary">${pop}<span>кредиты: <b>${currentUser.credits.toLocaleString()}</b></span></div>
+        <div class="mkt-summary">${pop}</div>
+        <div class="mkt-summary" style="justify-content:flex-end">кредиты: <b style="margin-left:6px">${Math.round(currentUser.credits).toLocaleString('ru-RU')}</b></div>
         <div class="mkt-hub">Все биржи стоят на лунах: низкая гравитация и дешёвая перевалка груза</div>
         <div class="route-table">${routes}</div>
         <div class="mkt-hub">До Врат Атлантов — по брахистохроне, прыжок между системами мгновенный</div>
         <div class="route-table">${portalRows}</div>
         ${artifactsBlock}
-        <table class="mkt-table"><thead><tr><th>Товар</th><th>База</th><th>Цена</th><th>Рынок</th><th>У вас</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+        <table class="mkt-table"><thead><tr><th>Товар</th><th>Цена</th><th>Рынок</th><th>У вас</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 window.openMarket = () => {
@@ -1491,11 +2429,14 @@ window.closeMarket = () => { const m = document.getElementById('market-modal'); 
 // Кнопки создаются разными модулями по одной; здесь они раскладываются
 // по разделам: игра, экономика, гильдия, администратор.
 const MENU_SECTIONS = [
-    { title: 'Игра', items: ['История', 'Квесты', 'Справочник', 'Флот', 'Ресурсы', 'Системы', 'Разведсводка', 'Поверхность', 'Карта'] },
-    { title: 'Экономика', items: ['Биржа', 'Чёрный рынок'] },
-    { title: 'Наука', items: ['Наука', 'Постройки'] },
-    { title: 'Чат', items: ['Чат', 'Гильдия'] },
-    { title: 'Администраторы', items: ['Админка', 'Монитор'] }
+    // всё игровое — в одной группе
+    { title: 'Игра', open: true, items: ['Колония', 'Луны', 'Мегапроекты', 'Стройка', 'Постройки', 'Аренда',
+        'Флот', 'Ресурсы', 'Карта', 'Миры', 'Системы', 'Поверхность', 'Разведсводка', 'Авария'] },
+    { title: 'Развитие', items: ['Задания', 'Квесты', 'История', 'Справочник', 'Энциклопедия', 'Рейтинг', 'Звания'] },
+    { title: 'Торговля', items: ['Рынок', 'Биржа', 'Чёрный рынок', 'Купить кристаллы'] },
+    { title: 'Наука', items: ['Наука'] },
+    { title: 'Общение', items: ['Чат', 'Общий чат', 'Гильдия', 'Пожелания'] },
+    { title: 'Система', items: ['Настройки', 'Статистика', 'Админка', 'Монитор'] }
 ];
 
 // Переключатель слоя станций: на общем плане станции и лифты выглядят
@@ -1515,6 +2456,74 @@ function addStationToggle() {
     try { saved = localStorage.getItem('gm_hide_stations') || '0'; } catch (e) {}
     if (saved === '1') { input.checked = false; document.body.classList.add('hide-stations'); }
     panel.appendChild(row);
+
+    // ФИЛЬТР ФЛОТА: раскрывается — свои / все / транспорт / грузовые / истребители
+    const row2 = document.createElement('div');
+    row2.className = 'station-toggle-row fleet-filter';
+    row2.innerHTML =
+        '<label><input type="checkbox" id="fleet-routes-toggle" checked> Маршруты флотов</label>' +
+        '<button type="button" class="flt-expand" title="Развернуть">▸</button>' +
+        '<div class="flt-sub" style="display:none">' +
+          '<label><input type="checkbox" data-flt="own" checked> Свои</label>' +
+          '<label><input type="checkbox" data-flt="npc" checked> Все</label>' +
+          '<label><input type="checkbox" data-flt="trade" checked> Торговые</label>' +
+          '<label><input type="checkbox" data-flt="freight" checked> Грузовые</label>' +
+          '<label><input type="checkbox" data-flt="fighter" checked> Истребители</label>' +
+        '</div>';
+    const input2 = row2.querySelector('#fleet-routes-toggle');
+    input2.addEventListener('change', () => {
+        const hide = !input2.checked;
+        document.body.classList.toggle('hide-fleet-routes', hide);
+        // прячем и линии маршрутов (SVG), и «хвосты» бортов
+        document.querySelectorAll('.traffic-paths, .trade-paths, .route-line, .traffic-path, .trade-path')
+            .forEach(function (el) { el.style.display = hide ? 'none' : ''; });
+        try { localStorage.setItem('gm_hide_fleet_routes_v2', input2.checked ? '0' : '1'); } catch (e) {}
+    });
+    // по умолчанию маршруты ПОКАЗАНЫ (галочка стоит)
+    let saved2 = '0';
+    try { saved2 = localStorage.getItem('gm_hide_fleet_routes_v2') || '0'; } catch (e) {}
+    input2.checked = saved2 !== '1';
+    document.body.classList.toggle('hide-fleet-routes', saved2 === '1');
+
+    const expand = row2.querySelector('.flt-expand');
+    const sub = row2.querySelector('.flt-sub');
+    expand.addEventListener('click', () => {
+        const open = sub.style.display === 'none';
+        sub.style.display = open ? 'flex' : 'none';
+        expand.textContent = open ? '▾' : '▸';
+    });
+    row2.querySelectorAll('[data-flt]').forEach(cb => {
+        const key = cb.getAttribute('data-flt');
+        let saved = '0';
+        try { saved = localStorage.getItem('gm_flt_' + key) || '0'; } catch (e) {}
+        if (saved === '1') { cb.checked = false; document.body.classList.add('hide-flt-' + key); }
+        cb.addEventListener('change', () => {
+            document.body.classList.toggle('hide-flt-' + key, !cb.checked);
+            try { localStorage.setItem('gm_flt_' + key, cb.checked ? '0' : '1'); } catch (e) {}
+        });
+    });
+    panel.insertBefore(row2, panel.firstChild);
+
+    // верхний уровень: смотреть все маршруты или только свои
+    const row3 = document.createElement('div');
+    row3.className = 'station-toggle-row';
+    row3.innerHTML =
+        '<label><input type="checkbox" id="routes-all" checked> Все маршруты</label>' +
+        '<label style="margin-left:10px;"><input type="checkbox" id="routes-own"> Только свои</label>';
+    const allCb = row3.querySelector('#routes-all');
+    const ownCb = row3.querySelector('#routes-own');
+    function applyRoutesScope() {
+        const onlyOwn = ownCb.checked;
+        allCb.checked = !onlyOwn;
+        document.body.classList.toggle('only-own-routes', onlyOwn);
+        try { localStorage.setItem('gm_routes_own', onlyOwn ? '1' : '0'); } catch (e) {}
+    }
+    allCb.addEventListener('change', function () { if (allCb.checked) ownCb.checked = false; applyRoutesScope(); });
+    ownCb.addEventListener('change', function () { if (ownCb.checked) allCb.checked = false; applyRoutesScope(); });
+    try { ownCb.checked = (localStorage.getItem('gm_routes_own') === '1'); } catch (e) {}
+    allCb.checked = !ownCb.checked;
+    applyRoutesScope();
+    panel.insertBefore(row3, panel.firstChild);
 }
 
 // Язык интерфейса из профиля: подписи меню берутся из словаря.
@@ -1524,6 +2533,20 @@ const MENU_KEY_BY_RU = {
     'История': 'history', 'Квесты': 'quests', 'Справочник': 'codex', 'Флот': 'fleet',
     'Ресурсы': 'resources', 'Системы': 'systems', 'Разведсводка': 'intel',
     'Поверхность': 'surface', 'Карта': 'map', 'Энциклопедия': 'encyclopedia'
+};
+
+window.setUserLang = (lang) => {
+    if (!currentUser) return;
+    currentUser.lang = lang;
+    if (window.__i18n) window.__i18n.setLang(lang);
+    saveUser();
+    applyLanguage();
+    renderDock();
+    notify('Язык интерфейса: ' + ({ ru: 'русский', en: 'English', zh: '中文' }[lang] || lang));
+    if (document.getElementById('enc-modal')) {
+        const m = document.getElementById('enc-modal');
+        if (m && m.style.display === 'flex') { try { window.openEncyclopedia('ships'); } catch (e) {} }
+    }
 };
 
 function applyLanguage() {
@@ -1548,7 +2571,11 @@ function regroupMenu() {
 
     const used = new Set();
     const frag = document.createDocumentFragment();
-    MENU_SECTIONS.forEach(sec => {
+    let collapsedState = null;
+    try { collapsedState = JSON.parse(localStorage.getItem('gm_menu_collapsed') || 'null'); } catch (e) { collapsedState = null; }
+    const hasSaved = collapsedState && typeof collapsedState === 'object';
+    if (!hasSaved) collapsedState = {};
+    MENU_SECTIONS.forEach((sec, idx) => {
         const own = buttons.filter(b => {
             if (used.has(b)) return false;
             const t = (b.textContent || '').trim();
@@ -1558,18 +2585,44 @@ function regroupMenu() {
         own.forEach(b => used.add(b));
         const title = document.createElement('div');
         title.className = 'menu-sec-title';
-        title.textContent = sec.title;
+        const closed = hasSaved ? (collapsedState[sec.title] === true) : !sec.open;
+        const body = document.createElement('div');
+        body.className = 'menu-sec-body' + (closed ? ' menu-collapsed' : '');
+        const mark = document.createElement('span');
+        mark.className = 'menu-sec-mark';
+        mark.textContent = closed ? '▸' : '▾';
+        title.appendChild(mark);
+        title.appendChild(document.createTextNode(' ' + sec.title));
+        title.title = closed ? 'Развернуть группу' : 'Свернуть группу';
+        title.addEventListener('click', () => {
+            const isClosed = body.classList.toggle('menu-collapsed');
+            mark.textContent = isClosed ? '▸' : '▾';
+            title.title = isClosed ? 'Развернуть группу' : 'Свернуть группу';
+            try {
+                const st = JSON.parse(localStorage.getItem('gm_menu_collapsed') || '{}') || {};
+                st[sec.title] = isClosed;
+                localStorage.setItem('gm_menu_collapsed', JSON.stringify(st));
+            } catch (e) { }
+        });
+        own.forEach(b => body.appendChild(b));
         frag.appendChild(title);
-        own.forEach(b => frag.appendChild(b));
+        frag.appendChild(body);
     });
     // что не разложилось — в «Игра»
     const rest = buttons.filter(b => !used.has(b));
     if (rest.length) {
         const title = document.createElement('div');
         title.className = 'menu-sec-title';
-        title.textContent = 'Прочее';
+        title.textContent = '▾ Прочее';
+        const body = document.createElement('div');
+        body.className = 'menu-sec-body';
+        rest.forEach(b => body.appendChild(b));
+        title.addEventListener('click', () => {
+            const isClosed = body.classList.toggle('menu-collapsed');
+            title.textContent = (isClosed ? '▸' : '▾') + ' Прочее';
+        });
         frag.appendChild(title);
-        rest.forEach(b => frag.appendChild(b));
+        frag.appendChild(body);
     }
     box.innerHTML = '';
     box.appendChild(frag);
@@ -1577,22 +2630,47 @@ function regroupMenu() {
 
 window.setMarketWorld = (id) => { marketWorld = id; renderMarket(); };
 
+// Биржа работает через сервер: раньше покупка меняла только локальные данные,
+// поэтому цена на экране не совпадала со списанием, а кредиты «росли сами».
+function _mktToken() {
+    try { return localStorage.getItem('galaktika_token') || ''; } catch (e) { return ''; }
+}
+function syncProfileFromServer() {
+    // без токена запрос давал 401 в консоли — просто выходим
+    if (!_mktToken()) return Promise.resolve();
+    return fetch('/api/auth/me', { headers: { 'X-Auth-Token': _mktToken() } })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+            if (!res || !res.profile) return;
+            var prof = {};
+            try { prof = JSON.parse(res.profile || '{}'); } catch (e) { prof = {}; }
+            if (typeof prof.credits === 'number') currentUser.credits = prof.credits;
+            if (prof.resources) currentUser.resources = prof.resources;
+            if (prof.ships) currentUser.ships = prof.ships;
+            if (typeof prof.dockSlots === 'number') currentUser.dockSlots = prof.dockSlots;
+            if (typeof window.saveUser === 'function') window.saveUser();
+            if (typeof window.updateCredits === 'function') window.updateCredits();
+        })
+        .catch(function () {});
+}
+function marketTrade(id, qty, side) {
+    return fetch('/api/npcmarket/trade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Token': _mktToken() },
+        body: JSON.stringify({ key: id, qty: qty, side: side })
+    }).then(function (r) { return r.json(); }).then(function (res) {
+        if (res && res.error) { notify(res.error); return null; }
+        return syncProfileFromServer().then(function () { return res; });
+    }).catch(function () { notify('Сервер недоступен'); return null; });
+}
+
 window.marketBuy = (id) => {
-    const p = marketPrice(id).price * 10;
-    if (currentUser.credits < p) { notify('Нужно ' + p.toLocaleString() + ' кр'); return; }
-    currentUser.credits -= p;
-    currentUser.resources[id] = (currentUser.resources[id] || 0) + 10;
-    addResearch(p);
-    saveUser(); updateCredits(); renderMarket();
+    marketTrade(id, 10, 'buy').then(function (res) { if (res) renderMarket(); });
 };
 
 window.marketSell = (id) => {
     if ((currentUser.resources[id] || 0) < 10) { notify('Меньше 10 единиц на складе'); return; }
-    const p = Math.round(marketPrice(id).price * 10 * 0.98);
-    currentUser.resources[id] -= 10;
-    currentUser.credits += p;
-    addResearch(p);
-    saveUser(); updateCredits(); renderMarket();
+    marketTrade(id, 10, 'sell').then(function (res) { if (res) renderMarket(); });
 };
 
 function buildMarketUI() {
@@ -1633,6 +2711,13 @@ const BUILDINGS = [
     { id: 'wind', race: 'earth', cat: 'Энергия', name: 'Ветровой парк', cost: 32000, steel: 60, chips: 4, time: 4, crew: 3, out: '+7 МВт за уровень', note: 'экологично, зависит от погоды' },
     { id: 'geo', race: 'earth', cat: 'Энергия', name: 'Геотермальная станция', cost: 54000, steel: 110, chips: 8, time: 6, crew: 8, out: '+14 МВт за уровень', note: 'энергия планеты, стабильна' },
     { id: 'tidal', race: 'earth', cat: 'Энергия', name: 'Приливная станция', cost: 48000, steel: 95, chips: 6, time: 6, crew: 6, out: '+11 МВт за уровень', note: 'работает на побережьях' },
+    // --- Развлечения: поднимают счастье колонии ---
+    { id: 'stadium', race: 'earth', cat: 'Развлечения', name: 'Стадион', cost: 65000, steel: 180, chips: 12, time: 10, crew: 20,
+      out: '+8 счастья', note: 'арены для футбола и лёгкой атлетики на 40 000 мест' },
+    { id: 'raceway', race: 'mars', cat: 'Развлечения', name: 'Гоночная трасса', cost: 82000, steel: 240, chips: 18, time: 12, crew: 24,
+      out: '+10 счастья', note: 'кольцевая трасса с гравитационными виражами, гонки по субботам' },
+    { id: 'park', race: 'belt', cat: 'Развлечения', name: 'Парк развлечений', cost: 48000, steel: 120, chips: 10, time: 8, crew: 16,
+      out: '+6 счастья', note: 'купол с аттракционами, оранжереей и смотровой площадкой' },
     { id: 'elevator', race: 'earth', cat: 'Инфраструктура', name: 'Атмосферный лифт', cost: 90000, steel: 200, chips: 30, time: 15, crew: 25, out: '400 км при 300 км/ч', note: '1.3 ч до орбиты, быстрее атмосфера не даёт' },
 
     // --- Марс ---
@@ -1655,6 +2740,15 @@ const RACE_NAMES = { earth: 'Земля · Терра Нова', mars: 'Марс
 // Один жилой массив на 10 млн человек. Считаем, сколько нужно каждому миру.
 const POP_PER_HABITAT = 50000000;
 
+// Склонение числительных: «1 массив», «2 массива», «5 массивов».
+function plural(n, one, few, many) {
+    const a = Math.abs(n) % 100, b = a % 10;
+    if (a > 10 && a < 20) return many;
+    if (b > 1 && b < 5) return few;
+    if (b === 1) return one;
+    return many;
+}
+
 function habitatNeeds() {
     return WORLDS.map(w => ({ name: w.name, pop: w.pop, need: Math.ceil(w.pop / POP_PER_HABITAT) }));
 }
@@ -1663,7 +2757,7 @@ function renderBuildings() {
     const body = document.getElementById('buildings-body');
     if (!body) return;
     const groups = ['all', 'earth', 'mars', 'belt'];
-    const needs = habitatNeeds().map(n => `<span>${n.name}: <b>${(n.pop / 1e9).toFixed(1)} млрд</b> → ${n.need.toLocaleString()} массивов</span>`).join('');
+    const needs = habitatNeeds().map(n => `<span>${n.name}: <b>${(n.pop / 1e9).toFixed(1)} млрд</b> → ${n.need > 0 ? (n.need.toLocaleString() + ' ' + plural(n.need, 'массив', 'массива', 'массивов')) : '—'}</span>`).join('');
     body.innerHTML = `<div class="mkt-summary">${needs}</div>` + groups.map(g => {
         const items = BUILDINGS.filter(b => b.race === g);
         if (!items.length) return '';
@@ -2160,28 +3254,28 @@ const GLOBE_NAMES = {
 };
 
 const GLOBE_TEX = {
-    mercury: '/images/tex/mercury.jpg',
-    venus: '/images/tex/venus.jpg',
-    earth: '/images/tex/earth.jpg',
-    moon: '/images/tex/moon.jpg',
-    mars: '/images/tex/mars.jpg',
-    phobos: '/images/tex/phobos.jpg',
-    deimos: '/images/tex/deimos.jpg',
-    ceres: '/images/tex/ceres.jpg',
-    jupiter: '/images/tex/jupiter.jpg',
-    io: '/images/tex/io.jpg',
+    mercury: '/images/tex/mercury.webp',
+    venus: '/images/tex/venus.webp',
+    earth: '/images/tex/earth.webp',
+    moon: '/images/tex/moon.webp',
+    mars: '/images/tex/mars.webp',
+    phobos: '/images/tex/phobos.webp',
+    deimos: '/images/tex/deimos.webp',
+    ceres: '/images/tex/ceres.webp',
+    jupiter: '/images/tex/jupiter.webp',
+    io: '/images/tex/io.webp',
     europa: '/images/tex/europa.webp',
-    ganymede: '/images/tex/ganymede.jpg',
-    callisto: '/images/tex/callisto.jpg',
-    saturn: '/images/tex/saturn.jpg',
-    titan: '/images/tex/titan.jpg',
-    enceladus: '/images/tex/enceladus.jpg',
-    uranus: '/images/tex/uranus.jpg',
-    titania: '/images/tex/titania.jpg',
-    neptune: '/images/tex/neptune.jpg',
-    triton: '/images/tex/triton.jpg',
-    belt: '/images/tex/ceres.jpg',
-    kepler1: '/images/tex/kepler1.jpg'
+    ganymede: '/images/tex/ganymede.webp',
+    callisto: '/images/tex/callisto.webp',
+    saturn: '/images/tex/saturn.webp',
+    titan: '/images/tex/titan.webp',
+    enceladus: '/images/tex/enceladus.webp',
+    uranus: '/images/tex/uranus.webp',
+    titania: '/images/tex/titania.webp',
+    neptune: '/images/tex/neptune.webp',
+    triton: '/images/tex/triton.webp',
+    belt: '/images/tex/ceres.webp',
+    kepler1: '/images/tex/kepler1.webp'
 };
 
 // Текстура глобуса: готовая карта для известных тел, процедурная — для новых систем.
@@ -2206,7 +3300,14 @@ function globeTextureFor(id) {
     } catch (e) { console.warn('gen texture:', e); return GLOBE_TEX.earth; }
 }
 
+// Защита от двойного вызова: второй клик из пары «двойного» приходил сюда
+// повторно и мгновенно закрывал только что открытый глобус.
+let __lastGlobeAt = 0;
+let __lastGlobeId = '';
 window.openGlobe = (id) => {
+    const nowTs = Date.now();
+    if (id === __lastGlobeId && nowTs - __lastGlobeAt < 700) return;
+    __lastGlobeAt = nowTs; __lastGlobeId = id;
     const world = (typeof id === 'string' && id) ? id : 'earth';
     let modal = document.getElementById('globe-modal');
     if (!modal) {
@@ -2228,22 +3329,52 @@ window.openGlobe = (id) => {
             '  <span><i style="background:#dfe9f7;border:1px solid #7fe3ff"></i> орбитальная станция</span>' +
             '</div>' +
             '<div class="globe-hint">вращение — перетаскивание · масштаб — колесо</div>' +
+            '<button class="globe-surface-btn" id="globe-surface">⬇ Спуститься на планетарный вид</button>' +
             '</div></div>');
         modal = document.getElementById('globe-modal');
     }
     modal.style.display = 'flex';
-    const tot = (WORLD_CITIES[world] ? worldTotals(world) : (() => {
-        const cities = (typeof GEN_CITIES !== 'undefined' && GEN_CITIES[world]) ? GEN_CITIES[world] : generatedSettlements(world);
-        const pop = cities.reduce((s, c) => s + (c.pop || 0), 0);
-        return { pop: pop, cities: cities.length, habitats: cities.length };
-    })());
-    const popText = tot.pop >= 1e9 ? (tot.pop / 1e9).toFixed(1) + ' млрд' : Math.round(tot.pop / 1e6) + ' млн';
-    document.getElementById('globe-title').textContent =
-        (GLOBE_NAMES[world] || world) + ' · ' + popText + ' · ' + tot.cities + ' городов · ' +
-        tot.habitats.toLocaleString() + ' модулей';
+    // На газовых гигантах селиться негде: там только добыча газа,
+    // а заводы и жильё — на лунах. Поэтому население и города = 0.
+    const GAS_GIANTS = { jupiter: 'Европа, Ио, Ганимед', saturn: 'Титан, Энцелад',
+                         uranus: 'Титания', neptune: 'Тритон' };
+    let tot, titleTail;
+    if (GAS_GIANTS[world]) {
+        tot = { pop: 0, cities: 0, habitats: 0 };
+        titleTail = 'газовый гигант · заводы на лунах: ' + GAS_GIANTS[world];
+    } else {
+        tot = (WORLD_CITIES[world] ? worldTotals(world) : (() => {
+            const cities = (typeof GEN_CITIES !== 'undefined' && GEN_CITIES[world]) ? GEN_CITIES[world] : generatedSettlements(world);
+            const pop = cities.reduce((s, c) => s + (c.pop || 0), 0);
+            return { pop: pop, cities: cities.length, habitats: cities.length };
+        })());
+        const popText = tot.pop >= 1e9 ? (tot.pop / 1e9).toFixed(1) + ' млрд' : Math.round(tot.pop / 1e6) + ' млн';
+        titleTail = popText + ' · ' + tot.cities + ' городов · ' + tot.habitats.toLocaleString() + ' модулей';
+    }
+    document.getElementById('globe-title').textContent = (GLOBE_NAMES[world] || world) + ' · ' + titleTail;
     document.getElementById('globe-tabs').innerHTML = Object.keys(GLOBE_TEX).map(k =>
         `<button class="surface-tab ${k === world ? 'active' : ''}" onclick="openGlobe('${k}')">${GLOBE_NAMES[k] || k}</button>`
     ).join('');
+    const surfaceBtn = document.getElementById('globe-surface');
+    if (surfaceBtn) {
+        surfaceBtn.onclick = () => {
+            // закрываем глобус и даём кадру «успокоиться»: если вызвать сцену
+            // сразу, она строится в момент, когда глобус ещё убирает свои узлы
+            window.closeGlobe();
+            const openScene = () => {
+                // планетарный вид — в отдельной вкладке, чтобы карта не терялась
+                const pvUrl = location.pathname + '?pv=' + encodeURIComponent(world);
+                const win = window.open(pvUrl, '_blank');
+                if (win) { if (typeof closeGlobe === 'function') closeGlobe(); else { const m = document.getElementById('globe-modal'); if (m) m.style.display = 'none'; } return; }
+                if (window.PlanetView && typeof window.PlanetView.open === 'function') {
+                    window.PlanetView.open(world);
+                } else if (typeof notify === 'function') {
+                    notify('Планетарный вид ещё загружается');
+                }
+            };
+            setTimeout(openScene, 120);
+        };
+    }
     import('/js/planetgen.js').then(m => { window.__planetgen = m; }).catch(() => {});
     import('/js/globe.js').then(m => {
         globeModule = m;
@@ -2252,6 +3383,17 @@ window.openGlobe = (id) => {
             document.getElementById('globe-canvas'),
             tex,
             globeMarkers(world),
+            null,
+            { onSurfaceClick: function (lat, lon) {
+                // щелчок по глобусу — планетарный вид в этой точке
+                const pvUrl = location.pathname + '?pv=' + encodeURIComponent(world) +
+                    '&lat=' + lat.toFixed(2) + '&lon=' + lon.toFixed(2);
+                const win = window.open(pvUrl, '_blank');
+                if (!win) {
+                    window.__pvPoint = { lat: lat, lon: lon };
+                    if (window.PlanetView && window.PlanetView.open) window.PlanetView.open(world, window.__pvPoint);
+                }
+            } },
             marker => {
                 // клик только подсвечивает название, ничего не открывает
                 window.__pickedCity = marker.label;
@@ -2530,7 +3672,7 @@ function renderBlackMarket() {
         </div>`;
     }).join('');
     body.innerHTML = `<div class="mkt-summary"><span>кристаллы: <b>${crystals}</b></span>
-        <span>кредиты: <b>${(currentUser.credits || 0).toLocaleString()}</b></span></div>
+        <span>кредиты: <b>${Math.round(currentUser.credits || 0).toLocaleString('ru-RU')}</b></span></div>
         <div class="bm-list">${offers}</div>
         <h3 class="npc-log-title">Выставить своё</h3>
         <div class="bm-list">
@@ -2560,11 +3702,26 @@ window.bmSellResource = (id, price, amount) => {
     const have = currentUser.resources[id] || 0;
     const qty = amount === 0 ? Math.floor(have / 100) * 100 : amount;
     if (qty < 100 || have < qty) { notify('Нужно минимум 100 единиц'); return; }
-    currentUser.resources[id] -= qty;
-    const gain = Math.max(1, Math.round(price * qty / 100));
-    currentUser.resources.eternity = (currentUser.resources.eternity || 0) + gain;
-    saveUser(); updateCredits(); renderBlackMarket();
-    notify('Продано ' + qty.toLocaleString() + ' единиц за ' + gain + ' крст');
+    // Сделку считает сервер: он же решает, сколько кристаллов за это дать
+    fetch('/api/bm/sell', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Token': localStorage.getItem('galaktika_token') || '' },
+        body: JSON.stringify({ resource: id, qty: qty })
+    }).then(r => r.json()).then(res => {
+        if (res.error) { notify(res.error); return; }
+        if (window.pullServerProfile) window.pullServerProfile();
+        currentUser.resources[id] = (currentUser.resources[id] || 0) - qty;
+        currentUser.resources.eternity = (currentUser.resources.eternity || 0) + res.crystals;
+        saveUser(); updateCredits(); renderBlackMarket();
+        notify('Продано ' + qty.toLocaleString() + ' единиц за ' + res.crystals + ' крст');
+    }).catch(() => {
+        // сервер недоступен — считаем локально, как раньше
+        currentUser.resources[id] -= qty;
+        const gain = Math.max(1, Math.round(price * qty / 100));
+        currentUser.resources.eternity = (currentUser.resources.eternity || 0) + gain;
+        saveUser(); updateCredits(); renderBlackMarket();
+        notify('Продано ' + qty.toLocaleString() + ' единиц за ' + gain + ' крст');
+    });
 };
 
 window.bmBuy = (id) => {
@@ -2661,8 +3818,8 @@ window.modRemoveArtifact = (shipIndex) => {
 // Пять шагов для нового капитана. Показывается один раз.
 const TUTORIAL = [
     { t: 'Добро пожаловать', d: 'Вы — выпускник Университета Экспансии. У вас есть допуск к Вратам и 80 000 кредитов. Цель — свой корабль и своя колония.' },
-    { t: 'Шаг 1. Осмотритесь', d: 'Откройте «Карта» и посмотрите, где находятся биржи: Земля (Луна), Марс (Фобос), Пояс (Церера). Там продают и покупают.' },
-    { t: 'Шаг 2. Купите борт', d: 'В «Флоте» возьмите грузовик «Баржа» за 26 000 кр. Он идёт 4 минуты — стройка не мгновенная.' },
+    { t: 'Шаг 1. Осмотритесь', d: 'Откройте «Биржу»: там продают зерно, воду, металлы и детали для корабля.' },
+    { t: 'Шаг 2. Постройте «Искру»', d: 'Разведчик «Искра» стоит 18 000 кр и требует 60 т стали, 20 т меди, 10 т никеля, 2 т серебра, 1 т золота и 8 чипов. Всё это есть на бирже, стройка идёт 5 минут.' },
     { t: 'Шаг 3. Первый рейс', d: 'Отправьте борт в рейс кнопкой в доке. Маршрут выберется сам, груз закупится. Через 30–40 минут вернётся прибыль.' },
     { t: 'Шаг 4. Застройте мир', d: 'В доке есть «Жилой массив» — 40 000 кр и 12 минут. Каждые 10 % застройки дают премию 50 000.' },
     { t: 'Шаг 5. Опасность', d: 'Пираты держат тень Юпитера и кольца Сатурна. Если у вас есть боевой борт — жмите «⚔ В бой» и отбивайтесь. 35 % их атак отбиваются.' }
@@ -2699,9 +3856,17 @@ window.closeTutorial = () => {
 };
 
 function maybeTutorial() {
+    // не показывать в тестовых режимах и для скриншотов
+    if (/[?&]notutor=1/.test(location.search)) return;
+    if (/[?&]shot=1/.test(location.search)) return;
     let done = false;
     try { done = localStorage.getItem('gm_tutorial_done') === '1'; } catch (e) {}
-    if (!done) setTimeout(() => showTutorial(0), 1500);
+    if (done) return;
+    // только новичкам: без кораблей и колонии, иначе обучение мешает играть
+    const u = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : null;
+    if (!u) return;
+    if ((u.ships && u.ships.length) || u.colony) return;
+    setTimeout(() => showTutorial(0), 1500);
 }
 
 // Чертёж корабля: отдельный 3D-вид, сам корабль не трогаем.
@@ -3221,7 +4386,8 @@ let viewFlags = (() => {
     try { return Object.assign({ orbits: true, moons: true, belt: true, stars: true, labels: true, portal: true }, JSON.parse(localStorage.getItem(VIEW_KEY) || '{}')); }
     catch (e) { return { orbits: true, moons: true, belt: true, stars: true, labels: true, portal: true }; }
 })();
-const VIEW_ITEMS = [['orbits', 'Орбиты'], ['moons', 'Спутники'], ['belt', 'Пояс'], ['stars', 'Звёзды'], ['labels', 'Подписи'], ['portal', 'Портал']];
+const VIEW_ITEMS = [['orbits', 'Орбиты'], ['moons', 'Спутники'], ['belt', 'Пояс'], ['fleets', 'Флоты'],
+                    ['stars', 'Звёзды'], ['labels', 'Подписи'], ['portal', 'Портал']];
 
 function applyViewFlags() {
     const container = document.querySelector('.solar-system-container');
@@ -3232,6 +4398,13 @@ function applyViewFlags() {
         container.classList.toggle('hide-portal', !viewFlags.portal);
         container.classList.toggle('hide-stars', !viewFlags.stars);
     }
+    document.querySelectorAll('.ship-marker').forEach(el => {
+        el.style.visibility = viewFlags.fleets === false ? 'hidden' : 'visible';
+    });
+    const civil = document.getElementById('civil-traffic');
+    if (civil) civil.style.display = viewFlags.fleets === false ? 'none' : '';
+    const fl = document.getElementById('fleet-dots');
+    if (fl) fl.style.display = viewFlags.fleets === false ? 'none' : '';
     beltEnabled = viewFlags.belt && currentSystem && currentSystem.id === 'sol';
     if (!beltEnabled && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
     document.querySelectorAll('.view-toggle').forEach(btn => {
@@ -3263,6 +4436,18 @@ window.toggleFilters = () => {
     const panel = document.getElementById('view-panel');
     if (panel) panel.classList.toggle('collapsed', !filtersOpen);
 };
+
+// включает видимость ускоренных кнопок, если тестовый режим разрешён
+function applyTestMode() {
+    if (TIME_TEST_MODE) document.body.classList.add('test-mode');
+    // «1x» (реальное время) убираем: при нём планеты делают оборот за год,
+    // и кажется, что карта «замерла». Основной режим — 1 с = 1 мин.
+    // кнопку «реальное время» больше не скрываем — она нужна игроку и админу
+    document.querySelectorAll('.mode-btn[data-mode="real"]').forEach(b => { b.style.display = ''; });
+    // ползунок не запираем: он же служит для тонкой настройки у админа
+    const input = document.getElementById('time-scale');
+    if (input) input.max = String(MAX_TIME_SCALE);
+}
 
 function buildTimeExtras() {
     const row = document.querySelector('#time-control-panel > div');
@@ -3374,7 +4559,9 @@ function generateAsteroids(count = BELT_COUNT) {
         const inc = Math.random() * 15;                   // наклонение, град
         beltI[i] = inc;
         beltInclCos[i] = Math.cos(inc * Math.PI / 180);   // cos наклонения считаем один раз
-        beltPeriod[i] = 365.25 * Math.pow(a, 1.5);        // период по III закону Кеплера
+        // период по III закону Кеплера; ×40 — иначе на скорости 60×
+        // астероиды и сборщики «летают» с колоссальной скоростью
+        beltPeriod[i] = 365.25 * Math.pow(a, 1.5) * 40;
         beltEpoch[i] = Math.random() * 360;
     }
     beltReady = true;
@@ -3391,7 +4578,7 @@ window.initAsteroids = (json) => {
                 beltPeriod = new Float64Array(n); beltEpoch = new Float64Array(n); beltInclCos = new Float64Array(n);
                 for (let i = 0; i < n; i++) {
                     beltA[i] = parsed[i].A; beltE[i] = parsed[i].E; beltI[i] = parsed[i].I;
-                    beltPeriod[i] = parsed[i].Period; beltEpoch[i] = parsed[i].Epoch;
+                    beltPeriod[i] = parsed[i].Period * 40; beltEpoch[i] = parsed[i].Epoch;
                     beltInclCos[i] = Math.cos(beltI[i] * Math.PI / 180);
                 }
                 beltReady = true;
@@ -3401,6 +4588,84 @@ window.initAsteroids = (json) => {
     }
     if (!beltReady) generateAsteroids();
 };
+
+
+// ===== ПОЯС АСТЕРОИДОВ: у каждого объекта свой адрес =====
+// Адрес детерминированный: он считается из орбитальных элементов, поэтому
+// один и тот же астероид всегда называется одинаково.
+let beltSelected = -1;
+const BELT_HABITATS = {};        // индекс → { name, sector }
+
+function beltAddress(i) {
+    const angle = ((beltEpoch[i] + 360) % 360 + 360) % 360;
+    const sector = Math.floor(angle / 15) + 1;
+    return 'ПОЯС-' + String(sector).padStart(2, '0') + '-' + String((i % 997) + 1).padStart(3, '0');
+}
+
+// Жилые астероиды: 12 штук, равномерно по поясу, с именами секторов
+function beltHabitats() {
+    if (Object.keys(BELT_HABITATS).length) return BELT_HABITATS;
+    for (let k = 0; k < 12; k++) {
+        const idx = Math.floor(beltA.length * (k + 0.5) / 12);
+        BELT_HABITATS[idx] = {
+            name: 'Жилой сектор ' + String.fromCharCode(65 + k),
+            sector: k + 1
+        };
+    }
+    return BELT_HABITATS;
+}
+
+function beltPos(i, days) {
+    const angle = beltEpoch[i] + (days / beltPeriod[i]) * 360;
+    const rad = (((angle % 360) + 360) % 360) * Math.PI / 180;
+    const e = beltE[i], cosRad = Math.cos(rad);
+    const r = beltA[i] * (1 - e * e) / (1 + e * cosRad);
+    const rPx = orbitRadius(r);
+    return { x: cosRad * rPx, y: Math.sin(rad) * rPx * beltInclCos[i], r: r, ang: rad };
+}
+
+// клик по поясу: адрес астероида; двойной клик — наезд камеры на него.
+// Слушаем документ, а не canvas: иначе холст перехватывал клики по планетам
+// и глобус не открывался (был виден только адрес астероида).
+let beltTapPrev = { t: 0, i: -1 };
+function attachBeltPicker() {
+    if (document._beltPicker) return;
+    document._beltPicker = true;
+
+    document.addEventListener('click', function (ev) {
+        if (!beltReady || !beltEnabled) return;
+        if (ev.target.closest && ev.target.closest('.control-panel, .left-menu, .resources-panel, [id$="-modal"]')) return;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+        const px = ev.clientX - cx, py = ev.clientY - cy;
+        const days = (simulatedTime - EPOCH_MS) / DAY_MS;
+        const sk = rect.width / canvas.width;
+        let best = -1, bestD = 1e9, bestPos = null;
+        const step = Math.max(1, Math.floor(beltA.length / 900));
+        for (let i = 0; i < beltA.length; i += step) {
+            const p2 = beltPos(i, days);
+            const d = Math.hypot(p2.x * sk - px, p2.y * sk - py);
+            if (d < bestD) { bestD = d; best = i; bestPos = p2; }
+        }
+        if (best < 0 || bestD > 14) return;      // попадание только по самому астероиду
+
+        const now = Date.now();
+        const isDouble = beltTapPrev.i === best && now - beltTapPrev.t < 450;
+        beltTapPrev = { t: now, i: best };
+        if (isDouble && bestPos && typeof window.cinematicZoom === 'function') {
+            const s = Math.max(4, scale * 2.6);
+            window.cinematicZoom({ scale: s, x: -s * bestPos.x, y: -s * bestPos.y, spin: 6 }, 800);
+            return;
+        }
+        const hab = BELT_HABITATS[best];
+        const au = bestPos.r.toFixed(2);
+        const text = (hab ? hab.name + ' · ' : '') + beltAddress(best) + ' · ' + au + ' а.е. · период ' +
+            (beltPeriod[best] / 365.25).toFixed(1) + ' г';
+        if (typeof notify === 'function') notify(text);
+    }, true);
+}
+setInterval(attachBeltPicker, 1500);
 
 function drawAsteroids(currentDays) {
     if (!ctx || !beltReady || !beltEnabled) return;
@@ -3421,6 +4686,29 @@ function drawAsteroids(currentDays) {
     }
     ctx.fillStyle = 'rgba(150, 140, 130, 0.6)';
     ctx.fill();
+
+    // жилые сектора — бирюзовое свечение, выбранный — жёлтое кольцо
+    const hab = beltHabitats();
+    for (const idx in hab) {
+        const p2 = beltPos(Number(idx), days);
+        ctx.beginPath();
+        ctx.arc(p2.x, p2.y, 3.2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(127,227,255,0.95)';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(p2.x, p2.y, 7, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(127,227,255,0.55)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    }
+    if (beltSelected >= 0) {
+        const p3 = beltPos(beltSelected, days);
+        ctx.beginPath();
+        ctx.arc(p3.x, p3.y, 10, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,215,90,0.95)';
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+    }
     ctx.restore();
 }
 
@@ -3433,11 +4721,45 @@ function fitScale() {
     const h = window.innerHeight || 900;
     return Math.min(Math.max(Math.min(w, h) / 2 / (maxOrbitRadius + 60), 0.35), 1.3);
 }
-let scale = fitScale(), posX = 0, posY = 0, rotX = 0, rotZ = 0;
+// ?tilt=40&spin=15 — фиксированный ракурс для 3D-проверки (правило 23).
+// Без параметров камера ведёт себя как обычно.
+const __view = new URLSearchParams(location.search);
+const __tilt = parseFloat(__view.get('tilt'));
+const __spin = parseFloat(__view.get('spin'));
+let scale = fitScale(), posX = 0, posY = 0,
+    rotX = isNaN(__tilt) ? 0 : Math.max(-85, Math.min(85, __tilt)),
+    rotZ = isNaN(__spin) ? 0 : Math.max(-180, Math.min(180, __spin));
+// tilt-param-applied: если ракурс задан ссылкой — держим его
+setTimeout(() => {
+    if (!isNaN(__tilt) || !isNaN(__spin)) {
+        if (typeof window.updateSolarTransform === 'function') window.updateSolarTransform();
+    }
+}, 600);
+
 window.updateSolarTransform = () => {
     const el = document.querySelector('.solar-system');
-    if (el) { el.style.transform = `translate(${posX}px, ${posY}px) scale(${scale}) rotateX(${rotX}deg) rotateZ(${rotZ}deg)`; el.style.setProperty('--rot-x', rotX + 'deg'); el.style.setProperty('--rot-z', rotZ + 'deg'); const slider = document.getElementById('tilt-slider'); if (slider) slider.value = rotX; }
+    if (el) { el.style.transform = `translate(${posX}px, ${posY}px) scale(${scale}) rotateX(${rotX}deg) rotateZ(${rotZ}deg)`; el.style.setProperty('--rot-x', rotX + 'deg'); el.style.setProperty('--rot-z', rotZ + 'deg');
+        // размер планет подстраивается под зум: далеко — крупнее, вблизи — не раздуваются
+        el.style.setProperty('--planet-scale', Math.max(0.65, Math.min(1.9, 0.55 / (scale || 1))).toFixed(2));
+        el.style.setProperty('--moon-scale', Math.max(0.7, Math.min(1.6, 0.42 / (scale || 1))).toFixed(2));
+        const slider = document.getElementById('tilt-slider'); if (slider) slider.value = rotX; }
     const txt = document.getElementById('scale-text'); if (txt) txt.innerText = scale.toFixed(1) + 'x';
+    // при сильном приближении маркеры станций не нужны: на поверхности планеты
+    // они выглядели как тёмная «дырка» с синим кольцом
+    const sc = document.querySelector('.solar-system-container');
+    if (sc) sc.classList.toggle('hide-stations', scale > 2.2);
+    // гравитационные платформы показываем только при приближении ×4 и ближе
+    const sys = document.querySelector('.solar-system');
+    if (sys) sys.classList.toggle('gravity-on', scale >= 4);
+    document.querySelectorAll('.gravity-platform').forEach(el => {
+        el.style.display = scale >= 4 ? 'block' : 'none';
+    });
+    // обратный масштаб: элементы интерфейса сцены (станции, трафик) не должны
+    // расти вместе с зумом — иначе «корабли» становятся гигантскими
+    try {
+        document.documentElement.style.setProperty('--inv-scale', String(1 / (typeof scale === 'number' && scale > 0 ? scale : 1)));
+    } catch (e) { }
+    document.body.classList.toggle('ships-hidden', (typeof scale === 'number' ? scale : 1) < SHIP_HIDE_BELOW_SCALE);
     if (starCanvas) { starCanvas.style.transform = `translate(-50%, -50%) translate(${posX * 0.2}px, ${posY * 0.2}px) rotateX(${rotX * 0.2}deg) rotateZ(${rotZ * 0.2}deg) scale(1.5)`; }
 };
 window.moveView = (dir) => { const step = 10; if (dir === 'up') rotX = Math.max(rotX - step, -85); if (dir === 'down') rotX = Math.min(rotX + step, 85); if (dir === 'left') rotZ -= step; if (dir === 'right') rotZ += step; window.updateSolarTransform(); };
@@ -3445,8 +4767,48 @@ window.updateTilt = (val) => { rotX = parseFloat(val); window.updateSolarTransfo
 // Масштаб всегда меняется вокруг точки под курсором (или центра экрана):
 // иначе при приближении к Земле картинку «уносит» к Солнцу, потому что
 // transform-origin у сцены — центр системы.
+// Порог перехода в вид глобуса: при увеличении ×9 система открывает планету.
+const GLOBE_ZOOM = 9;
+let globeLockUntil = 0;
+
+// какая планета под точкой экрана (или ближайшая к центру)
+function planetAtScreen(cx, cy) {
+    const px = window.innerWidth / 2 + cx;
+    const py = window.innerHeight / 2 + cy;
+    // защита: элементыFromPoint падает на NaN/Infinity (было из-за нулевых
+    // размеров при программных кликах)
+    if (!isFinite(px) || !isFinite(py)) return null;
+    const hit = document.elementFromPoint(px, py);
+    const direct = hit && hit.closest ? hit.closest('.planet[data-planet-id]') : null;
+    if (direct) return direct.getAttribute('data-planet-id');
+
+    let best = null, bestDist = Infinity;
+    document.querySelectorAll('.planet[data-planet-id]').forEach(function (el) {
+        const r = el.getBoundingClientRect();
+        if (!r.width) return;
+        const d = Math.hypot(r.left + r.width / 2 - px, r.top + r.height / 2 - py);
+        if (d < bestDist) { bestDist = d; best = el.getAttribute('data-planet-id'); }
+    });
+    return best;
+}
+
+function openGlobeFor(id) {
+    if (!id || typeof window.openGlobe !== 'function') return false;
+    globeLockUntil = Date.now() + 2000;
+    window.openGlobe(id);          // сначала глобус, с него — на поверхность
+    return true;
+}
+
 function zoomAt(targetScale, cx, cy) {
     const s = Math.max(0.1, Math.min(10, targetScale));
+    // на подходе к ×9 показываем подсказку
+    if (s >= GLOBE_ZOOM - 1.4 && scale < GLOBE_ZOOM - 1.4 && s < GLOBE_ZOOM) {
+        if (window.toast) window.toast('Ещё немного — и откроется вид глобуса');
+    }
+    if (s >= GLOBE_ZOOM && Date.now() > globeLockUntil) {
+        const id = planetAtScreen(cx || 0, cy || 0);
+        if (openGlobeFor(id)) return;                 // дальше не увеличиваем
+    }
     if (Math.abs(s - scale) < 1e-6) return;
     const k = s / scale;
     posX = cx - k * (cx - posX);
@@ -3467,14 +4829,27 @@ function focusPlanet(node) {
 
 window.solarZoomIn = () => zoomAt(scale * 1.25, 0, 0);
 window.solarZoomOut = () => zoomAt(scale / 1.25, 0, 0);
-window.solarReset = () => { scale = fitScale(); posX = 0; posY = 0; rotX = 0; rotZ = 0; window.updateSolarTransform(); };
+window.solarReset = () => { scale = fitScale(); posX = 0; posY = 0; rotX = isNaN(__tilt) ? 0 : __tilt; rotZ = isNaN(__spin) ? 0 : __spin; window.updateSolarTransform(); };
 
 let isDragging = false, startX, startY;
 window.addEventListener('mousedown', (e) => { if (e.target.closest('.control-panel') || e.target.closest('.auth-container') || e.target.closest('.legend-overlay') || e.target.closest('.left-menu') || e.target.closest('.codex-modal') || e.target.closest('.admin-modal') || e.target.closest('.fleet-modal') || e.target.closest('.quest-modal')) return; isDragging = true; startX = e.clientX - posX; startY = e.clientY - posY; document.body.style.cursor = 'grabbing'; });
 window.addEventListener('mousemove', (e) => { if (!isDragging) return; posX = e.clientX - startX; posY = e.clientY - startY; window.updateSolarTransform(); });
 window.addEventListener('mouseup', () => { isDragging = false; document.body.style.cursor = 'default'; });
 window.addEventListener('wheel', (e) => {
+    // при открытом окне колесо не должно зумить карту под ним
+    if (typeof isModalVisible === 'function') {
+        const opened = ['market-modal', 'npc-modal', 'flight-modal', 'globe-modal', 'build-modal',
+                        'admin-modal', 'systems-modal', 'tut-modal', 'onb-guide']
+            .some(id => isModalVisible(document.getElementById(id)));
+        if (opened) return;
+    }
     if (e.target.closest('.control-panel') || e.target.closest('.legend-overlay')) return;
+    // любая форма/панель должна прокручиваться, а не приближать карту
+    if (e.target.closest('[id$="-modal"]') || e.target.closest('.admin-modal') ||
+        e.target.closest('.fleet-modal') || e.target.closest('.quest-modal') ||
+        e.target.closest('.codex-modal') || e.target.closest('.auth-container') ||
+        e.target.closest('.resources-panel') || e.target.closest('.market-panel') ||
+        e.target.closest('.chat-panel') || e.target.closest('.panel')) return;
     e.preventDefault();
     const cx = e.clientX - window.innerWidth / 2;
     const cy = e.clientY - window.innerHeight / 2;
@@ -3482,11 +4857,133 @@ window.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 // Двойной клик по планете — приблизить и отцентрировать её.
+// Двойной клик по планете или луне открывает вид глобуса.
+// Если для мира глобуса ещё нет — приближаем его, как раньше.
+// Глобус открывается для любого мира, у которого есть текстура в GLOBE_TEX,
+// плюс Кеплер-1 (у него в карте ключ kepler1, а id планеты — kepler).
+const GLOBE_READY = new Set(Object.keys(GLOBE_TEX).concat(['kepler']));
+
+function globeIdForTarget(target) {
+    if (!target || !target.closest) return null;
+    const planetEl = target.closest('.planet[data-planet-id]');
+    if (planetEl) {
+        const id = planetEl.getAttribute('data-planet-id');
+        return id === 'kepler1' ? 'kepler' : id;
+    }
+    const moonEl = target.closest('.moon[data-moon]');
+    if (moonEl) {
+        const nm = moonEl.getAttribute('data-moon');
+        return (typeof MOON_SLUG !== 'undefined' && MOON_SLUG[nm]) ? MOON_SLUG[nm] : null;
+    }
+    return null;
+}
+
+// Планеты всё время движутся, поэтому первый и второй клик могут попасть
+// в РАЗНЫЕ элементы — нативный dblclick тогда не срабатывает. Ловим двойной
+// клик вручную: по времени и расстоянию между нажатиями.
+let __lastClick = { t: 0, x: 0, y: 0, el: null };
+document.addEventListener('click', (e) => {
+    const now = Date.now();
+    const prev = __lastClick;
+    __lastClick = { t: now, x: e.clientX, y: e.clientY, el: e.target };
+    if (now - prev.t > 420) return;
+    if (Math.hypot(e.clientX - prev.x, e.clientY - prev.y) > 26) return;
+    // цель могла «уехать» под курсором — берём любой из двух элементов
+    let el = e.target;
+    if (el && el.closest && !el.closest('.planet, .moon, .ship-marker')) el = prev.el;
+    if (!el || !el.closest) return;
+    const shipEl = el.closest('.ship-marker');
+    if (shipEl) {
+        if (shipEl.classList.contains('ship-marker--traffic')) {
+            openTrafficCard(parseInt(shipEl.getAttribute('data-route'), 10));
+        } else if (shipEl._fleet) {
+            // КАРТОЧКА КОНКРЕТНОГО БОРТА: раньше открывалось общее окно флота
+            // «Космический флот», и по клику нельзя было понять, какой борт выбран.
+            showShipCard(shipEl._fleet);
+        }
+        return;
+    }
+    const id = globeIdForTarget(el);
+    if (id && GLOBE_READY.has(id) && typeof window.openGlobe === 'function') {
+        window.openGlobe(id);
+    }
+}, true);
+
+// Прямая привязка двойного клика к самим планетам: глобальный обработчик
+// иногда не срабатывает (цель «уезжает» под курсором, перекрытие слоями).
+// Здесь событие приходит на саму планету — надёжнее.
+function bindPlanetDblClick() {
+    document.querySelectorAll('.planet[data-planet-id]').forEach(function (el) {
+        if (el.__dblBound) return;
+        el.__dblBound = true;
+        el.addEventListener('dblclick', function (ev) {
+            ev.stopPropagation();
+            var id = el.getAttribute('data-planet-id');
+            if (!id) return;
+            // наезд, затем глобус (раньше здесь открывалось мгновенно и
+            // перебивало кинематографичный переход)
+            var opened = window.cinematicFocus(el, function () {
+                if (typeof window.openGlobe === 'function') window.openGlobe(id);
+            });
+            if (!opened && typeof window.openGlobe === 'function') window.openGlobe(id);
+        });
+    });
+}
+
+// СВОЙ детектор двойного клика: планета движется по орбите, поэтому второй
+// клик часто попадает уже в другой элемент и нативный dblclick не приходит.
+let __tapPrev = { t: 0, id: null, x: 0, y: 0 };
+document.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    const el = e.target;
+    const id = (el && el.closest && el.closest('.planet[data-planet-id]'))
+        ? el.closest('.planet[data-planet-id]').getAttribute('data-planet-id')
+        : globeIdForTarget(el);
+    const now = Date.now();
+    const prev = __tapPrev;
+    __tapPrev = { t: now, id: id, x: e.clientX, y: e.clientY };
+    if (!prev.id || !id) return;
+    if (prev.id !== id) return;
+    if (now - prev.t > 520) return;
+    if (Math.hypot(e.clientX - prev.x, e.clientY - prev.y) > 60) return;
+    if (document.getElementById('globe-modal')) return;   // уже открыт
+    __tapPrev = { t: 0, id: null, x: 0, y: 0 };
+    if (typeof window.openGlobe === 'function') window.openGlobe(prev.id);
+}, true);
+
 document.addEventListener('dblclick', (e) => {
+    // двойной клик по летящему транспорту — карточка борта
+    // Любой корабль на карте открывается двойным кликом: транспорт — карточкой
+    // борта, флот — карточкой с маршрутом.
+    const anyShip = e.target.closest && e.target.closest('.ship-marker');
+    if (anyShip) {
+        if (anyShip.classList.contains('ship-marker--traffic')) {
+            openTrafficCard(parseInt(anyShip.getAttribute('data-route'), 10));
+        } else if (anyShip._fleet && typeof openFleetCard === 'function') {
+            openFleetCard(anyShip._fleet);
+        }
+        return;
+    }
+    const id = globeIdForTarget(e.target);
+    if (id && GLOBE_READY.has(id) && typeof window.openGlobe === 'function') {
+        window.openGlobe(id);        // двойной клик по планете — глобус
+        return;
+    }
+    // спутник без текстуры глобуса — всё равно открываем планетарный вид
+    const moonEl = e.target.closest && e.target.closest('.moon[data-moon]');
+    if (moonEl && window.PlanetView && typeof window.PlanetView.open === 'function') {
+        const slug = (typeof MOON_SLUG !== 'undefined' && MOON_SLUG[moonEl.getAttribute('data-moon')]) ||
+                     moonEl.getAttribute('data-moon');
+        window.PlanetView.open(slug);
+        return;
+    }
+    // запасной путь: для миров без глобуса — приблизить и отцентрировать
     const planetEl = e.target.closest && e.target.closest('.planet');
-    if (!planetEl || !planetNodes.length) return;
-    const node = planetNodes.find(n => n.planet === planetEl);
-    focusPlanet(node);
+    if (planetEl && planetNodes.length) {
+        const node = planetNodes.find(n => n.planet === planetEl);
+        focusPlanet(node);
+        if (id && window.toast) window.toast('Глобус этого мира ещё в работе — приближаю');
+    }
 });
 
 // === ВРЕМЯ ===
@@ -3502,11 +4999,22 @@ const GAME_OFFSET_MS = (() => {
     future.setFullYear(future.getFullYear() + GAME_YEAR_OFFSET);
     return future.getTime() - now.getTime();
 })();
-// По умолчанию 1 сутки за секунду: при 1x планеты за минуту смещаются на тысячные
-// доли градуса, поэтому казалось, что они «не двигаются».
-// 1 секунда реального времени = 1 игровой час
-const DEFAULT_TIME_SCALE = 3600;
-let timeScale = DEFAULT_TIME_SCALE;   // по умолчанию 1 с = 1 час
+// По умолчанию 1 секунда реального времени = 1 игровая МИНУТА (60×).
+// Было 3600× (1 с = 1 час) — планеты крутились слишком быстро и «не читались».
+const DEFAULT_TIME_SCALE = 1;   // реальное время: 1 с = 1 с
+// Ускоренное время (1ч, 1д, 1г) — инструмент тестирования, а не игровая механика.
+// Включается только флагом ?test=1, на локальном хосте или админом.
+const TIME_TEST_MODE = (() => {
+    if (/[?&]test=1/.test(location.search)) return true;
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') return true;
+    try {
+        const u = window.getCurrentUser ? window.getCurrentUser() : null;
+        return !!(u && (u.admin === true || u.role === 'admin'));
+    } catch (e) { return false; }
+})();
+const MAX_TIME_SCALE = TIME_TEST_MODE ? 31557600 : 60;   // 1x реальное время, 1м = 60×
+
+let timeScale = DEFAULT_TIME_SCALE;   // по умолчанию 1 с = 1 с (реальное время)
 let simulatedTime = Date.now() + GAME_OFFSET_MS;
 let lastRealTime = performance.now();
 
@@ -3519,15 +5027,24 @@ function syncTimeUI(mode) {
 window.setTimeMode = (mode) => {
     let scaleValue = 1;
     if (mode === 'pause') scaleValue = 0;
+    if (mode === 'real') scaleValue = 1;      // 1 секунда = 1 секунда
+    if (mode === 'min') scaleValue = 60;
     if (mode === 'hour') scaleValue = 3600;
     if (mode === 'day') scaleValue = 86400;
     if (mode === 'year') scaleValue = 31557600;
+    if (scaleValue > MAX_TIME_SCALE) {
+        if (typeof notify === 'function') {
+            notify('Ускоренное время — только в тестовом режиме (?test=1)');
+        }
+        return;
+    }
     timeScale = scaleValue;
     syncTimeUI(mode);
 };
 
 function modeForScale(value) {
     if (value === 1) return 'real';
+    if (value === 60) return 'min';
     if (value === 3600) return 'hour';
     if (value === 86400) return 'day';
     if (value === 31557600) return 'year';
@@ -3538,6 +5055,12 @@ window.applyTimeScale = () => {
     const input = document.getElementById('time-scale');
     let val = parseFloat(input.value);
     if (isNaN(val) || val <= 0) val = 1;
+    if (val > MAX_TIME_SCALE) {
+        val = MAX_TIME_SCALE;
+        if (typeof notify === 'function') {
+            notify('Максимум ' + MAX_TIME_SCALE + '× — быстрее только в тестовом режиме');
+        }
+    }
     timeScale = val;
     syncTimeUI(modeForScale(val));
 };
@@ -3545,10 +5068,89 @@ window.applyTimeScale = () => {
 window.resetToRealTime = () => {
     timeScale = DEFAULT_TIME_SCALE;
     simulatedTime = Date.now() + GAME_OFFSET_MS;   // текущий момент игры, а не реальный
-    syncTimeUI('real');
+    syncTimeUI(modeForScale(timeScale));
 };
 
 // === ЧАТ ===
+// Кнопка «Админка» нужна только администратору — обычному игроку она видна не должна.
+// Дубли меню: «Рынок» открывал ту же биржу, а кнопка EN — переключатель языка,
+// которого нет. Прячем оба, чтобы не путать игрока.
+// Название пункта без эмодзи: иначе «⚙️ Админка» не сравнивается с «админка».
+function menuLabel(btn) {
+    return (btn.textContent || '')
+        .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\uFE0F]/gu, '')
+        .trim().toLowerCase();
+}
+
+function hideDuplicateMenuButtons() {
+    const seen = new Set();
+    document.querySelectorAll('.menu-btn').forEach(btn => {
+        const t = menuLabel(btn);
+        // «Рынок» открывает ту же биржу, «EN» — переключатель без перевода
+        if (t === 'рынок' || t === 'en' || t === 'english') { btn.style.display = 'none'; return; }
+        // одинаковые подписи оставляем только в одном экземпляре
+        if (seen.has(t)) { btn.style.display = 'none'; return; }
+        seen.add(t);
+    });
+}
+
+function hideAdminButtons() {
+    let isAdmin = false;
+    try {
+        const u = window.getCurrentUser ? window.getCurrentUser() : null;
+        const admins = (window.ADMIN_EMAILS || [window.ADMIN_EMAIL || 'ab@btema.ru']).map(e => String(e).toLowerCase());
+        isAdmin = !!(u && (u.role === 'admin' || (u.email && admins.indexOf(String(u.email).toLowerCase()) >= 0)));
+    } catch (e) { isAdmin = false; }
+    document.querySelectorAll('.menu-btn').forEach(btn => {
+        const t = menuLabel(btn);
+        if (t.indexOf('админка') >= 0 || t.indexOf('монитор') >= 0) {
+            btn.style.display = isAdmin ? '' : 'none';
+        }
+    });
+    const ab = document.getElementById('admin-btn');
+    if (ab) ab.style.display = isAdmin ? '' : 'none';
+}
+
+// Esc закрывает верхнее окно: раньше окна копились друг на друге.
+// Окна позиционированы как fixed, поэтому offsetParent у них всегда null.
+// Раньше из-за этого Esc не закрывал ни одно окно — проверяем computed style.
+function isModalVisible(el) {
+    if (!el) return false;
+    const st = getComputedStyle(el);
+    if (st.display === 'none' || st.visibility === 'hidden') return false;
+    if (Number(st.opacity) < 0.05) return false;
+    return true;
+}
+
+function closeTopModal() {
+    const ids = ['onb-guide', 'ship-flight', 'globe-modal', 'build-modal', 'systems-modal',
+                 'flight-modal', 'npc-modal', 'market-modal', 'admin-modal', 'traffic-card'];
+    for (const id of ids) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        if (!isModalVisible(el)) continue;
+        if (id === 'globe-modal' && typeof window.closeGlobe === 'function') { window.closeGlobe(); }
+        else if (id === 'ship-flight') { el.remove(); }
+        else el.style.display = 'none';
+        return true;
+    }
+    const modals = document.querySelectorAll('.market-modal, .npc-modal, .flight-modal, .globe-modal');
+    for (const m of modals) {
+        if (isModalVisible(m)) {
+            m.style.display = 'none';
+            return true;
+        }
+    }
+    return false;
+}
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && closeTopModal()) e.preventDefault();
+});
+
+setInterval(function () { hideAdminButtons(); hideDuplicateMenuButtons(); }, 6000);
+setTimeout(function () { if (typeof ensureCivilSoon === 'function') ensureCivilSoon(); }, 1500);
+
 window.toggleLeftMenu = () => { const menu = document.getElementById('left-menu'); const chat = document.getElementById('chat-panel'); const res = document.getElementById('resources-panel'); if (chat.style.display === 'flex' || res.style.display === 'flex') return; menu.classList.toggle('collapsed'); };
 window.openChat = () => { document.getElementById('left-menu-items').style.display = 'none'; document.getElementById('chat-panel').style.display = 'flex'; };
 window.closeChat = () => { document.getElementById('left-menu-items').style.display = 'flex'; document.getElementById('chat-panel').style.display = 'none'; };
@@ -3926,15 +5528,18 @@ function shipName(id) {
 }
 
 const SHIPS = {
-    jet_scout: { name: '«Искра»', cls: 'Разведчик', drive: 'jet', price: 18000, steel: 60, parts: { steel: 60, copper: 20, nickel: 10, silver: 2, gold: 1, chips: 8, boards: 12, manip: 2 }, hull: 40, shield: 10, speed: 2.4, cargo: 40, crew: 2, guns: [{ n: 'Автопушка 20 мм', d: 6, t: 'кинетика' }], desc: 'Малый разведчик: дешёвый, быстрый, но без запаса прочности.' },
+    jet_scout: { name: '«Искра»', cls: 'Разведчик', drive: 'jet', price: 18000, steel: 60, parts: { steel: 60, copper: 20, nickel: 10, silver: 2, gold: 1, chips: 8 }, hull: 40, shield: 10, speed: 2.4, cargo: 40, crew: 2, guns: [{ n: 'Автопушка 20 мм', d: 6, t: 'кинетика' }], desc: 'Малый разведчик: дешёвый, быстрый, но без запаса прочности.' },
     jet_hauler: { name: '«Баржа»', cls: 'Грузовик', drive: 'jet', price: 26000, steel: 120, parts: { steel: 120, copper: 40, nickel: 25, silver: 4, gold: 1, chips: 14, boards: 20, manip: 4 }, hull: 90, shield: 15, speed: 1.2, cargo: 600, crew: 4, guns: [{ n: 'Автопушка 20 мм', d: 4, t: 'кинетика' }], desc: 'Рабочая лошадь торговца: трюм на 600 тонн, брони почти нет.' },
     ion_courier: { name: '«Стриж»', cls: 'Курьер', drive: 'ion', price: 34000, steel: 80, parts: { steel: 80, copper: 30, nickel: 15, silver: 3, gold: 2, chips: 20, boards: 26, manip: 3 }, hull: 55, shield: 25, speed: 3.0, cargo: 150, crew: 3, guns: [{ n: 'Лазер 40 кВт', d: 8, t: 'энергия' }], desc: 'Дальний курьер: ионный ход экономит топливо на длинных маршрутах.' },
+    ion_corsair: { name: 'Корсар «Вольный»', cls: 'Корсар', drive: 'ion', price: 75000, steel: 120, parts: { steel: 120, copper: 36, nickel: 18, silver: 3, gold: 1, chips: 14, boards: 16, manip: 3 }, hull: 120, shield: 50, speed: 3, cargo: 200, crew: 4, guns: [{ n: 'Ионная пушка 40 мм', d: 12, t: 'энергия' }], desc: 'Прочный курьер-универсал: держит удар лучше «Стрижа», возит вдвое больше, но медленнее.' },
     ion_prospector: { name: '«Старатель»', cls: 'Добытчик', drive: 'ion', price: 42000, steel: 140, parts: { steel: 140, copper: 60, nickel: 35, silver: 6, gold: 2, chips: 18, boards: 24, manip: 6 }, hull: 110, shield: 20, speed: 1.4, cargo: 500, crew: 5, guns: [{ n: 'Автопушка 20 мм', d: 5, t: 'кинетика' }, { n: 'Бур-дробовик', d: 7, t: 'кинетика' }], desc: 'Мирный добытчик, но с «клыками»: в Поясе без них не выжить.' },
     plasma_interceptor: { name: '«Клинок»', cls: 'Перехватчик', drive: 'plasma', price: 58000, steel: 110, parts: { steel: 110, copper: 45, nickel: 30, silver: 8, gold: 3, chips: 30, boards: 34, manip: 5 }, hull: 70, shield: 40, speed: 4.2, cargo: 60, crew: 2, guns: [{ n: 'Плазменная пушка', d: 14, t: 'плазма' }, { n: 'Плазменная пушка', d: 14, t: 'плазма' }], desc: 'Перехватчик: догоняет любого, кто уходит с грузом.' },
     plasma_lancer: { name: '«Копьё»', cls: 'Ланцет', drive: 'plasma', price: 92000, steel: 200, parts: { steel: 200, copper: 80, nickel: 50, silver: 14, gold: 5, chips: 44, boards: 48, manip: 8 }, hull: 130, shield: 60, speed: 3.4, cargo: 120, crew: 4, guns: [{ n: 'Тяжёлая плазма', d: 30, t: 'плазма' }, { n: 'Ракетный залп', d: 12, t: 'ракеты' }], desc: 'Охотник за пиратами: один залп решает бой.' },
     grav_frigate: { name: '«Щит»', cls: 'Фрегат', drive: 'grav', price: 130000, steel: 320, parts: { steel: 320, copper: 120, nickel: 80, silver: 24, gold: 8, chips: 70, boards: 76, manip: 14 }, hull: 260, shield: 120, speed: 2.2, cargo: 300, crew: 12, guns: [{ n: 'Турель 30 мм', d: 18, t: 'кинетика' }, { n: 'Турель 30 мм', d: 18, t: 'кинетика' }], desc: 'Конвой: гравитационный привод держит удар и не трясёт груз.' },
     grav_colossus: { name: '«Молот»', cls: 'Линкор', drive: 'grav', price: 320000, steel: 900, parts: { steel: 900, copper: 300, nickel: 200, silver: 60, gold: 20, chips: 160, boards: 180, manip: 30 }, hull: 620, shield: 260, speed: 1.6, cargo: 700, crew: 40, guns: [{ n: 'Тяжёлое орудие', d: 40, t: 'кинетика' }, { n: 'Тяжёлое орудие', d: 40, t: 'кинетика' }, { n: 'Турель 30 мм', d: 18, t: 'кинетика' }], desc: 'Флагман: медленный, дорогой, но сносит пиратскую стаю целиком.' }
 };
+window.SHIPS = SHIPS;
+
 
 // Рендеры от ИИ, прошедшие отбор (остальные показываются SVG-иконкой).
 const RENDER_OK = { jet_scout: 1, jet_hauler: 1, ion_courier: 1, ion_prospector: 1, plasma_interceptor: 1, plasma_lancer: 1 };
@@ -4054,6 +5659,29 @@ function ensureFleet(user) {
     if (!user.lang) user.lang = 'ru';
 }
 
+
+// Физика борта из единого ядра: класс, скорость, разгон/торможение, время рейса
+function fleetPhysicsLine(shipId) {
+    try {
+        if (!window.Motion) return '';
+        const art = shipId;
+        const v = window.Motion.shipSpeed(art, {
+            engineLevel: (currentUser && currentUser.engineLevel) || 0,
+            techLevel: (currentUser && currentUser.techLevel) || 0
+        });
+        const kmPerPx = window.Motion.TABLES.motion.kmPerAu / window.Motion.TABLES.motion.pxPerAuAtEarth;
+        // эталонный рейс: Земля -> Марс по таблице
+        const r = window.Motion.TABLES.routes.find(x => x.id === 'earth-mars');
+        const prof = window.Motion.flightProfile(r.len * kmPerPx, v);
+        const cls = (window.Motion.TABLES.ships[art] || {}).cls || 'light';
+        const clsRu = cls === 'truck' ? 'грузовик' : (cls === 'fighter' ? 'истребитель' : 'лёгкий транспорт');
+        return `<div class="ship-physics" style="font-size:11px;color:#8fb4d8;margin-top:4px">
+            ${clsRu} · <b>${Math.round(v).toLocaleString('ru-RU')} км/с</b>
+            · разгон ${Math.round(prof.tAcc)} с · торможение ${Math.round(prof.tAcc)} с
+            · Земля→Марс ${Math.round(prof.total / 60)} с</div>`;
+    } catch (e) { return ''; }
+}
+
 function shipCardHtml(shipId, actions) {
     const s = SHIPS[shipId];
     const d = DRIVES[s.drive];
@@ -4072,7 +5700,9 @@ function shipCardHtml(shipId, actions) {
             <span>Ход <b>${(eff.vmax).toFixed(1)} у.е.</b></span><span>Разгон <b>${(eff.accel).toFixed(1)} у.е./с²</b></span>
             <span>Трюм <b>${s.cargo} т</b></span><span>Экипаж <b>${s.crew}</b></span>
         </div>
+        ${fleetPhysicsLine(shipId)}
         <div class="ship-guns">${s.guns.map(g => `<span class="gun">${g.n} · ${g.d} ${g.t}</span>`).join('')}</div>
+        <button class="auth-btn" style="width:auto;padding:6px 12px;margin-top:8px" onclick="openBlueprint('${shipId}')">Чертёж</button>
         ${actions || ''}</div>`;
 }
 
@@ -4230,7 +5860,7 @@ function renderDock() {
     ensureFleet(currentUser);
     const body = document.getElementById('fleet-body');
     const title = document.getElementById('fleet-faction-name');
-    if (title) title.textContent = '· док, мест: ' + currentUser.dockSlots + ' · кредиты: ' + currentUser.credits.toLocaleString();
+    if (title) title.textContent = '· док, мест: ' + currentUser.dockSlots + ' · кредиты: ' + Math.round(currentUser.credits).toLocaleString('ru-RU');
     if (!body) return;
 
     let html = '<div class="dock-grid">';
@@ -4293,6 +5923,15 @@ function renderDock() {
     });
     html += '</div>';
 
+    // язык интерфейса
+    const curLang = (currentUser && currentUser.lang) || 'ru';
+    html += '<h3 style="margin:26px 0 12px; font-weight:400">Язык интерфейса</h3>' +
+        '<div class="hab-row">' +
+        [['ru', 'Русский'], ['en', 'English'], ['zh', '中文']].map(x =>
+            '<button class="auth-btn" style="width:auto;padding:6px 14px;margin:0' + (x[0] === curLang ? ';border-color:#7fe3ff;color:#7fe3ff' : '') + '" onclick="setUserLang(\'' + x[0] + '\')">' + x[1] + '</button>'
+        ).join('') +
+        '</div>';
+
     // оборудование: клонирование
     const cloneHave = currentUser.cloners || 0;
     const cloneBonus = Math.min(2, cloneHave * 0.5);
@@ -4318,6 +5957,9 @@ function renderDock() {
     const medPct = Math.min(100, Math.round(medHave / medNeed * 100));
     const sickPct = medHave === 0 ? 10.8 : Math.max(2.7, 10.8 - 8.1 * (medPct / 100));
     html += '<h3 style="margin:26px 0 12px; font-weight:400">Оборудование</h3>' +
+        '<div class="hab-row"><span style="min-width:220px">чертежи двигателей</span>' +
+        ['jet', 'ion', 'plasma', 'grav'].map(d => '<button class="auth-btn" style="width:auto;padding:6px 10px;margin:0" onclick="openEngineBlueprint(\'' + d + '\')">' + d + '</button>').join('') +
+        '</div>' +
         '<div class="hab-row">' +
         `<div class="hab-bar"><b style="width:${medPct}%;background:linear-gradient(90deg,#2ecc71,#7fe3ff)"></b></div>` +
         `<span>медмодулей ${medHave} из ${medNeed} · покрытие ${medPct}% · больных ${sickPct.toFixed(1)}%</span>` +
@@ -4343,7 +5985,7 @@ function renderDock() {
 
     html += '<h3 style="margin:26px 0 12px; font-weight:400">Разведка</h3>' +
         '<div class="survey-row"><span>Разведчик ищет малые астероиды с ценными металлами. Шанс находки 25 %, рейс 3 000 кр.</span>' +
-        '<button class="auth-btn" style="width:auto;padding:8px 16px;margin:0" onclick="surveyAsteroids()">🔍 Отправить разведчик</button></div>';
+        '<button class="auth-btn" style="width:auto;padding:8px 16px;margin:0" data-needs-scout="1" onclick="surveyAsteroids()">🔍 Отправить разведчик</button></div>';
 
     html += '<h3 style="margin:26px 0 12px; font-weight:400">Верфь</h3><div class="ship-shop" id="ship-shop">';
     SHIP_ORDER.forEach(id => {
@@ -4359,6 +6001,12 @@ function renderDock() {
 
 window.openFleet = () => {
     if (!currentUser) return;
+    // синхронизируем доки с сервером, чтобы счётчик мест не расходился
+    if (typeof syncProfileFromServer === 'function') {
+        syncProfileFromServer().then(function () {
+            if (typeof renderDock === 'function') renderDock();
+        });
+    }
     ensureFleet(currentUser); saveUser();
     document.getElementById('fleet-modal').style.display = 'flex';
     renderDock();
@@ -4443,6 +6091,11 @@ window.buyCloner = () => {
 // Найм людей: чем ближе условия нового мира к родным, тем дешевле переезд.
 window.COLONY_WORLD = window.COLONY_WORLD || 'kepler1';
 window.COLONY_POP = window.COLONY_POP || 0;
+
+window.setColony = (world) => {
+    window.COLONY_WORLD = world;
+    renderDock();
+};
 
 window.hirePeople = (sourceId, count) => {
     const n = Math.max(100, Math.min(100000, Math.round(count || 1000)));
@@ -4601,8 +6254,6 @@ function tickPirateEconomy(dtMs) {
         // трофеи уже начислены в tickCombat; здесь — расходы и потери
         const upkeep = p.ships * 800;                  // содержание борта
         const repair = Math.round((p.damage || 0) * 40);   // ремонт по повреждениям
-        if (repair > 0) p.damage = Math.max(0, (p.damage || 0) - 25);
-        repair = repair;   // ремонт по повреждениям
         p.credits = Math.max(0, p.credits - upkeep - repair);
         if (repair > 0) {
             p.damage = Math.max(0, (p.damage || 0) - 25);
@@ -4774,6 +6425,19 @@ window.buyShip = (shipId) => {
     saveUser(); renderDock(); updateCredits();
 };
 
+// Кнопка разведки недоступна без разведчика в доке
+function updateSurveyButtons() {
+    try {
+        const hasScout = !!(currentUser && (currentUser.ships || []).some(s2 => s2 && s2.id === 'jet_scout'));
+        document.querySelectorAll('[data-needs-scout]').forEach(b => {
+            b.disabled = !hasScout;
+            b.style.opacity = hasScout ? '' : '0.45';
+            b.title = hasScout ? '' : 'Нужен разведчик в доке';
+        });
+    } catch (e) { }
+}
+window.updateSurveyButtons = updateSurveyButtons;
+
 window.surveyAsteroids = () => {
     ensureFleet(currentUser);
     const scout = currentUser.ships.find(s => s.id === 'jet_scout');
@@ -4804,15 +6468,44 @@ window.sellShip = (index) => {
 };
 
 window.rentDockSlot = () => {
-    if (currentUser.credits < DOCK_SLOT_PRICE) { notify('Не хватает кредитов на аренду места'); return; }
-    currentUser.credits -= DOCK_SLOT_PRICE;
-    currentUser.dockSlots += 1;
-    saveUser(); renderDock(); updateCredits();
+    // аренду считает сервер: цена растёт с каждым местом
+    var token = '';
+    try { token = localStorage.getItem('galaktika_token') || ''; } catch (e) { token = ''; }
+    if (!token) { notify('Войдите в игру'); return; }
+    fetch('/api/rent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+        body: JSON.stringify({ what: 'dock' })
+    }).then(function (r) { return r.json().catch(function () { return {}; }); }).then(function (res) {
+        if (res.error) { notify(res.error); return; }
+        currentUser.credits = res.credits;
+        currentUser.dockSlots = res.dockSlots;
+        saveUser(); renderDock(); updateCredits();
+        notify('Арендовано место в доке: всего ' + res.dockSlots);
+    }).catch(function () { notify('Сервер недоступен'); });
+};
+
+// аренда ремонтной мастерской — тоже на сервере
+window.rentWorkshop = () => {
+    var token = '';
+    try { token = localStorage.getItem('galaktika_token') || ''; } catch (e) { token = ''; }
+    if (!token) { notify('Войдите в игру'); return; }
+    fetch('/api/rent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+        body: JSON.stringify({ what: 'workshop' })
+    }).then(function (r) { return r.json().catch(function () { return {}; }); }).then(function (res) {
+        if (res.error) { notify(res.error); return; }
+        currentUser.credits = res.credits;
+        currentUser.workshops = res.workshops;
+        saveUser(); renderDock(); updateCredits();
+        notify('Арендована мастерская: всего ' + res.workshops);
+    }).catch(function () { notify('Сервер недоступен'); });
 };
 
 function updateCredits() {
     const el = document.getElementById('user-credits');
-    if (el && currentUser) el.textContent = currentUser.credits.toLocaleString() + ' кр';
+    if (el && currentUser) el.textContent = Math.round(currentUser.credits).toLocaleString('ru-RU') + ' кр';
 }
 
 // === КВЕСТЫ ===
@@ -4902,7 +6595,10 @@ function combatForce() {
         .filter(s => COMBAT_IDS.includes(s.id))
         .reduce((sum, s) => {
             const base = SHIPS[s.id].hull + SHIPS[s.id].shield;
-            return sum + (s.artifact && s.artifact.mult ? base * s.artifact.mult : base);
+            // мастерские: каждый уровень модернизации даёт +12% к силе корабля
+            const upgrade = 1 + 0.12 * (s.level || 0);
+            const withArtifact = s.artifact && s.artifact.mult ? base * s.artifact.mult : base;
+            return sum + withArtifact * upgrade;
         }, 0);
 }
 
@@ -5051,6 +6747,7 @@ let lastClockText = '', lastDateText = '';
 function formatSpeed(ts) {
     const a = Math.abs(ts);
     if (a < 2) return 'реальное время';
+    if (a < 60) return Math.round(a) + ' сек/с';        // реальное время
     if (a < 3600) return Math.round(a / 60) + ' мин/с';
     if (a < 86400) { const v = a / 3600; return (v < 10 ? v.toFixed(1).replace('.0', '') : Math.round(v)) + ' ч/с'; }
     if (a < 31557600) { const v = a / 86400; return (v < 10 ? v.toFixed(1).replace('.0', '') : Math.round(v)) + ' сут/с'; }
@@ -5086,12 +6783,17 @@ let moonNodes = [];
 let sceneReady = false;
 let trafficNodes = [];
 let routeLines = [];
+let routePaths = [];
 let solarVisible = false;
 
 function buildStamp() {
     const stamp = document.createElement('div');
     stamp.className = 'build-stamp';
-    stamp.textContent = 'модель 619 · ' + currentSystem.name + (DEV_MODE ? ' · отладка' : '');
+    // номер сборки берём из метки app-build — чтобы в углу был РЕАЛЬНЫЙ билд,
+    // а не зашитое «624» (по нему видно, старую ли страницу смотрит игрок)
+    var buildMeta = document.querySelector('meta[name="app-build"]');
+    var buildNo = buildMeta ? buildMeta.getAttribute('content') : '624';
+    stamp.textContent = 'сборка ' + buildNo + ' · ' + currentSystem.name + (DEV_MODE ? ' · отладка' : '');
     document.body.appendChild(stamp);
 }
 
@@ -5111,6 +6813,7 @@ function buildSceneCache() {
             radius: el.clientWidth / 2,
             surface: planet ? planet.querySelector('.planet-surface') : null,
             shadow: planet ? planet.querySelector('.planet-shadow') : null,
+            lights: planet ? planet.querySelector('.planet-lights') : null,
             rotPeriodHours: planet ? parseFloat(planet.dataset.rotPeriod) : NaN,
             surfaceWidth: 0,
             size: planet ? (parseFloat(planet.style.width) || 0) : 0,
@@ -5127,23 +6830,69 @@ function buildSceneCache() {
     const shadowsByPlanet = new Map();
     planetNodes.forEach(n => { if (n.planet) shadowsByPlanet.set(n.planet, n.shadow); });
 
+    // ЛУННЫЕ БАЗЫ: по легенде все луны заселены. Фракция выбирается
+    // «жребием» — детерминированно по имени луны, чтобы не менялась при перезагрузке.
+    const BASE_FACTIONS = [
+        { id: 'earth',    name: 'Земляне',      color: '#7fd6ff' },
+        { id: 'asteroid', name: 'Астровитяне',  color: '#ffd166' },
+        { id: 'mars',     name: 'Марсиане',     color: '#ff8a65' }
+    ];
+    function factionFor(name) {
+        let h = 0;
+        for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 100000;
+        return BASE_FACTIONS[h % BASE_FACTIONS.length];
+    }
+    window.__moonFaction = factionFor;
+
     moonNodes = Array.from(document.querySelectorAll('.moon-orbit')).map(el => {
         const moon = el.querySelector('.moon');
         const host = el.closest('.planet');
+        // радиус берём из clientWidth, а если слой не разложен (0) — из inline-стиля
+        const rPx = (el.clientWidth || parseFloat(el.style.width) || 60) / 2;
         return {
             moon,
             period: moon ? parseFloat(moon.dataset.period) : NaN,
             epoch: moon ? parseFloat(moon.dataset.epoch) : NaN,
-            radius: el.clientWidth / 2,
+            radius: rPx,
             shadow: moon ? moon.querySelector('.moon-shadow') : null,
             hostShadow: host ? (shadowsByPlanet.get(host) || null) : null,
             lastShadowBg: null
         };
     }).filter(n => n.moon && !isNaN(n.period) && !isNaN(n.epoch) && n.radius > 0);
 
-    trafficNodes = Array.from(document.querySelectorAll('.traffic-ship'));
+    // раскрашиваем луны по фракции и подписываем базу
+    try {
+        moonNodes.forEach(n => {
+            const el = n.moon;
+            if (!el) return;
+            const nm = el.getAttribute('data-moon') || '';
+            const f = factionFor(nm);
+            el.dataset.base = f.id;
+            el.style.boxShadow = '0 0 0 1.5px ' + f.color + ', 0 0 10px ' + f.color + '80';
+            // Луна и Фобос — космопорты: низкая гравитация, нет атмосферы
+            const isSpaceport = (nm === 'Луна' || nm === 'Фобос');
+            if (isSpaceport) {
+                el.dataset.spaceport = '1';
+                el.classList.add('spaceport-moon');
+                el.title = nm + ' · космопорт · база: ' + f.name;
+            } else {
+                el.title = nm + ' · база: ' + f.name;
+            }
+            n.faction = f;
+        });
+    } catch (e) { }
+
+    window.__moonDbg = moonNodes.map(n => ({
+        name: (n.moon && n.moon.getAttribute('data-moon')) || '?',
+        period: n.period, radius: +n.radius.toFixed(1)
+    }));
+    trafficNodes = Array.from(document.querySelectorAll('.ship-marker--traffic'));
     routeLines = Array.from(document.querySelectorAll('.route-line'));
+    routePaths = Array.from(document.querySelectorAll('.traffic-path'));
     sceneReady = planetNodes.length > 0;
+
+    // гражданские борта двигаются вместе с планетами
+    if (civilItems.length) updateCivilTraffic();
 }
 
 function updatePlanetShadow(node, angleDeg) {
@@ -5155,7 +6904,12 @@ function updatePlanetShadow(node, angleDeg) {
     const rad = angleDeg * Math.PI / 180;
     const lx = 50 - Math.cos(rad) * 50;
     const ly = 50 - Math.sin(rad) * 50;
-    if (node.shadow) node.shadow.style.background = `radial-gradient(circle at ${lx.toFixed(2)}% ${ly.toFixed(2)}%, transparent 10%, rgba(0,0,0,0.9) 75%)`;
+    if (node.shadow) node.shadow.style.background = `radial-gradient(circle at ${lx.toFixed(2)}% ${ly.toFixed(2)}%, transparent 10%, rgba(0,0,0,0.9) 75%)`
+    // огни городов видны только на теневой стороне — маска повторяет направление света
+    if (node.lights) {
+        node.lights.style.setProperty('--lx', lx.toFixed(2) + '%');
+        node.lights.style.setProperty('--ly', ly.toFixed(2) + '%');
+    };
     node.lastShadowAngle = angleDeg;
 }
 
@@ -5165,9 +6919,48 @@ function calculateAngles(currentDays) {
     // --- ПЛАНЕТЫ ---
     for (let i = 0; i < planetNodes.length; i++) {
         const n = planetNodes[i];
-        const angle = (n.epoch + (currentDays / n.period) * 360) % 360;
-        const rad = angle * Math.PI / 180;
-        const px = Math.cos(rad) * n.radius, py = Math.sin(rad) * n.radius;
+        // Если загружен модуль флотов — берём настоящую кеплерову орбиту:
+        // радиус зависит от угла, поэтому путь получается эллиптическим.
+        let angle, px, py;
+        // id планеты может лежать в data-атрибуте, а не в n.data
+        const body = (n.data && n.data.id) ||
+            (n.planet && n.planet.getAttribute && n.planet.getAttribute('data-planet-id')) ||
+            (n.wrapper && n.wrapper.getAttribute && n.wrapper.getAttribute('data-planet-id')) || null;
+        // Единая система координат: если модуль загружен, позиция берётся ТОЛЬКО
+        // из WorldCoords. Тогда планета, пояс, трассы и корабли считаются в одной
+        // системе, и рассинхрона «борт не на линии» не возникает.
+        const wc = (window.WorldCoords && body) ? window.WorldCoords.planetAt(body, simulatedTime) : null;
+        if (wc) {
+            angle = wc.angleDeg;
+            px = wc.x;
+            py = wc.y;
+            n.x = px; n.y = py;
+            n.wrapper.style.transform = `translate(${px.toFixed(2)}px, ${py.toFixed(2)}px)`;
+            updatePlanetShadow(n, angle);
+            if (n.surface && n.rotPeriodHours && n.surfaceWidth > 0) {
+                const rotationDegrees = (currentDays * 24 / n.rotPeriodHours) * 360;
+                const turn = (((rotationDegrees % 360) + 360) % 360) / 360;
+                const offset = -turn * n.surfaceWidth * 2;
+                if (!(Math.abs(offset - n.lastBgOffset) < 0.05)) {
+                    n.surface.style.backgroundPosition = `${offset.toFixed(2)}px center`;
+                    n.lastBgOffset = offset;
+                }
+            }
+            continue;
+        }
+        const kp = (fleetsModule && body && typeof fleetsModule.planetPosition === 'function')
+            ? fleetsModule.planetPosition(body, currentDays) : null;
+        if (kp) {
+            angle = (kp.lam * 180 / Math.PI + 360) % 360;
+            const rPx = orbitRadius(kp.r);
+            px = Math.cos(kp.lam) * rPx;
+            py = Math.sin(kp.lam) * rPx;
+        } else {
+            angle = (n.epoch + (currentDays / n.period) * 360) % 360;
+            const rad = angle * Math.PI / 180;
+            px = Math.cos(rad) * n.radius;
+            py = Math.sin(rad) * n.radius;
+        }
         n.x = px; n.y = py;
         n.wrapper.style.transform = `translate(${px.toFixed(2)}px, ${py.toFixed(2)}px)`;
 
@@ -5194,6 +6987,7 @@ function calculateAngles(currentDays) {
         const mx = (Math.cos(rad) * n.radius).toFixed(2);
         const my = (Math.sin(rad) * n.radius).toFixed(2);
         n.moon.style.transform = `translate(calc(-50% + ${mx}px), calc(-50% + ${my}px))`;
+        n.lastMx = parseFloat(mx); n.lastMy = parseFloat(my);
 
         // Тень луны как у планеты — копируем строку только если она изменилась
         const bg = n.hostShadow ? n.hostShadow.style.background : '';
@@ -5223,6 +7017,1463 @@ let fleetsModule = null;
 let fleetDots = [];
 let fleetLayer = null;
 
+
+// =========================================================
+// ГРАЖДАНСКИЙ ТРАФИК: колонии и пояс астероидов
+// Раньше борта были только на межпланетных трассах, поэтому у колоний
+// и в поясе астероидов ничего не двигалось.
+// =========================================================
+// У газовых гигантов поселений нет: там добыча газа, заводы на лунах,
+// и торговля идёт с лун. У Земли и Марса — обычное снабжение колоний.
+const CIVIL_GAS_MOONS = { jupiter: ['Европа', 'Ио', 'Ганимед'], saturn: ['Титан', 'Энцелад'] };
+const CIVIL_COLONY_MOON = { earth: 'Луна', mars: 'Фобос' };
+const CIVIL_PERIOD_GAME_S = 2400;      // полный оборот — 40 реальных секунд при 60×
+let civilLayer = null, civilItems = [], civilBuilt = false;
+
+// Объёмные рендеры (PNG с прозрачностью) есть не для всех классов:
+// для остальных остаются плоские SVG.
+const VOL_ART = new Set(['jet_scout', 'jet_hauler', 'ion_courier',
+                         'ion_prospector', 'grav_frigate', 'plasma_interceptor']);
+function shipArtUrl(art) {
+    return VOL_ART.has(art) ? '/images/ships/vol/' + art + '.png'
+                            : '/images/ships/' + art + '.svg';
+}
+
+// Реальные орбитальные данные лун: [расстояние до планеты, км; период, часов].
+// Раньше гражданские борта показывали «0 млн км» и «0.0 ч» — теперь цифры честные.
+const MOON_ORBITS = {
+    'Луна':     [384400, 655.7],
+    'Фобос':    [9376, 7.65],
+    'Ио':       [421800, 42.5],
+    'Европа':   [671100, 85.2],
+    'Ганимед':  [1070400, 171.7],
+    'Титан':    [1221870, 382.7],
+    'Энцелад':  [238040, 32.9]
+};
+
+function civilMarker(art, label, cls) {
+    const el = document.createElement('div');
+    el.className = 'ship-marker' + (cls ? ' ' + cls : '');
+    el.style.backgroundImage = 'url(' + shipArtUrl(art) + ')';
+    el.style.pointerEvents = 'auto';
+    el.title = label;
+    let distKm = 0, hours = 0;
+    for (const name in MOON_ORBITS) {
+        if (label.indexOf(name) >= 0) { distKm = MOON_ORBITS[name][0]; hours = MOON_ORBITS[name][1]; break; }
+    }
+    if (!el.dataset.ship) el.dataset.ship = 'fleet-' + label.split('·')[0].trim();
+    el._fleet = { kind: label.split('·')[0].trim(), label: label, hours: hours,
+                  distKm: distKm, art: art, color: '#9fb2c6' };
+    el.dataset.dist = String(distKm);
+    el.dataset.hours = String(hours);
+    return el;
+}
+
+
+// =========================================================
+// ТОРГОВЫЕ ТРАССЫ ОТ ВРАТ: корабли летят между реальными планетами,
+// а не «висят» в нормализованных координатах. Пунктир показывает путь.
+// =========================================================
+const TRADE_LINKS = [
+    { a: 'portal', b: 'earth',  count: 1, art: ['jet_scout'] },
+    { a: 'earth',  b: 'mars',   count: 4, art: ['jet_hauler', 'ion_courier'] },
+    { a: 'mars',   b: 'jupiter', count: 3, art: ['ion_prospector', 'jet_hauler'] },
+    { a: 'jupiter', b: 'saturn', count: 3, art: ['grav_frigate', 'ion_prospector'] },
+    // прямой рейс Юпитер <-> Земля: раньше его не было вообще
+    { a: 'earth', b: 'jupiter', count: 2, art: ['ion_courier', 'jet_hauler'] },
+    // торговля лунных баз: марсианские и астровитянские базы возят грузы
+    { a: 'mars', b: 'saturn', count: 2, art: ['ion_prospector', 'jet_hauler'] },
+    { a: 'saturn', b: 'earth', count: 2, art: ['grav_frigate', 'ion_courier'] }
+];
+let tradeShips = [], tradePaths = [], tradeBuilt = false, tradeLayer = null;
+
+function portalPoint() {
+    // Врата стоят там же, где нарисованы: радиус как в разметке портала
+    const r = orbitRadius(19.19126) + 45;
+    const ang = 160 * Math.PI / 180;
+    return { x: Math.cos(ang) * r, y: Math.sin(ang) * r, size: 16 };
+}
+
+function planetPoint(id) {
+    if (id === 'portal') return portalPoint();
+    // ЕДИНОЕ ЯДРО: координаты тела берём из каталога (SQL) через SceneModel.
+    // Своя математика у сцены остаётся только как запасной путь.
+    try {
+        if (window.CatalogBridge && window.CatalogBridge.available && window.CatalogBridge.available()) {
+            const cb = window.CatalogBridge.pos(id, simulatedTime);
+            if (cb) {
+                const node = planetNodes.find(p => (p.id || (p.planet && p.planet.getAttribute && p.planet.getAttribute('data-planet-id'))) === id);
+                return { x: cb.x, y: cb.y, size: (node && node.size) || 18 };
+            }
+        }
+    } catch (e) { }
+    const n = planetNodes.find(p => (p.id || (p.planet && p.planet.getAttribute && p.planet.getAttribute('data-planet-id'))) === id);
+    if (!n) return null;
+    if (n.x !== undefined) return { x: n.x, y: n.y, size: n.size || 18 };
+    const days = (simulatedTime - EPOCH_MS) / DAY_MS;
+    const a = ((n.epoch || 0) + (days / (n.period || 365)) * 360) * Math.PI / 180;
+    return { x: Math.cos(a) * (n.radius || 200), y: Math.sin(a) * (n.radius || 200), size: n.size || 18 };
+}
+
+
+// Слои должны жить в ТОМ ЖЕ контейнере, что и планеты: иначе своя точка отсчёта
+// и маркеры уезжают вместе с пунктиром, «отрываясь» от планет.
+
+// Автокалибровка слоя: вычисляем, на сколько нарисованная планета смещена
+// относительно её мировых координат, и сдвигаем весь слой на эту разницу.
+// Так маркеры и пунктир гарантированно совпадают с планетами при любом зуме/наклоне.
+let __lastAlign = 0;
+function alignLayerToPlanets(layer) {
+    if (!layer || !planetNodes.length) return;
+    const n = planetNodes.find(p => p.wrapper && p.planet && p.x !== undefined);
+    if (!n) return;
+    const pr = n.planet.getBoundingClientRect();
+    // ВАЖНО: измеряем слой БЕЗ его собственного сдвига, иначе transform
+    // учитывается в getBoundingClientRect и калибровка «раскачивается» —
+    // именно это давало переключение картинки раз в секунду.
+    const keep = layer.style.transform;
+    layer.style.transform = 'none';
+    const lr = layer.getBoundingClientRect();
+    layer.style.transform = keep;
+    if (!pr.width || !lr.width) return;
+    const scaleNow = (lr.width / (layer.offsetWidth || lr.width)) || 1;
+    const dx = ((pr.left + pr.width / 2) - lr.left) / scaleNow - n.x;
+    const dy = ((pr.top + pr.height / 2) - lr.top) / scaleNow - n.y;
+    if (!isFinite(dx) || !isFinite(dy)) return;
+    if (Math.abs(dx) < 0.6 && Math.abs(dy) < 0.6) return;   // уже выровнено
+    layer.style.transform = 'translate(' + dx.toFixed(1) + 'px,' + dy.toFixed(1) + 'px)';
+}
+function alignAllLayers() {
+    // Слои и орбиты теперь имеют общее начало координат (центр системы),
+    // поэтому сдвиг не нужен — только показываем слой после первого кадра.
+    [tradeLayer, fltLayer, civilLayer].forEach(l => { if (l && l.style.opacity !== '1') l.style.opacity = '1'; });
+}
+
+function trafficHost() {
+    try {
+        const n = planetNodes && planetNodes.length ? planetNodes[0] : null;
+        if (n && n.wrapper && n.wrapper.parentElement) return n.wrapper.parentElement;
+    } catch (e) { }
+    return document.querySelector('.solar-system') || document.querySelector('.system-view');
+}
+
+function buildTradeTraffic() {
+    if (tradeBuilt || !planetNodes.length) return;
+    const host = trafficHost();
+    if (!host) return;
+    tradeBuilt = true;
+    setTimeout(() => { try { buildPortalTraffic(); } catch (e) {} }, 300);
+
+    tradeLayer = document.createElement('div');
+    tradeLayer.id = 'trade-traffic';
+    tradeLayer.style.cssText = 'position:absolute;left:50%;top:50%;width:0;height:0;overflow:visible;pointer-events:none;z-index:2';
+    host.appendChild(tradeLayer);
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'trade-paths');
+    svg.setAttribute('width', '1'); svg.setAttribute('height', '1');
+    svg.setAttribute('overflow', 'visible');
+    // ВАЖНО: то же начало координат, что у маркеров (0,0 слоя), иначе пунктир
+    // смещён относительно бортов на полконтейнера.
+    svg.style.cssText = 'position:absolute;left:0;top:0;overflow:visible;pointer-events:none;';
+    tradeLayer.appendChild(svg);
+
+    TRADE_LINKS.forEach((link, li) => {
+        // Врата вне системы: трассы и борта от них рисуют «облако» за орбитами
+        if (link.a === 'portal' || link.b === 'portal') return;
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', 'rgba(127,227,255,0.5)');
+        path.setAttribute('stroke-width', '1.4');
+        path.setAttribute('stroke-dasharray', '6 7');
+        path.setAttribute('stroke-linecap', 'round');
+        path.setAttribute('class', 'trade-path');
+        svg.appendChild(path);
+        // индекс пути должен совпадать с индексом звена (portal-звенья
+        // пропускаются, из-за чего push сдвигал соответствие)
+        tradePaths[li] = path;
+
+        for (let k = 0; k < link.count; k++) {
+            const art = link.art[k % link.art.length];
+            const el = document.createElement('div');
+            el.className = 'ship-marker trade-ship';
+            el.dataset.role = /^plasma/.test(art) ? 'fighter'
+                : (/jet_hauler|grav_|ion_prospector/.test(art) ? 'freight' : 'trade');
+            el.dataset.side = 'npc';
+            el.style.backgroundImage = 'url(' + shipArtUrl(art) + ')';
+            el.style.pointerEvents = 'auto';
+            el.style.zIndex = '2';
+            el.title = 'торговец · ' + link.a + ' → ' + link.b;
+            el.dataset.sid = 'trade-' + link.a + '-' + link.b + '-' + k;   // стабильный ключ замеров
+            el.dataset.ship = el.dataset.sid;   // единый ключ борта для карточки
+            el._fleet = { kind: 'торговец', label: el.title, hours: 0, art: art, color: '#8fd6ff' };
+            tradeLayer.appendChild(el);
+            el.dataset.seed = String(li * 100 + k);
+            tradeShips.push({
+                el: el, link: li, phase: k / link.count,
+                // стабильный seed: не зависит от порядка обновления и перезагрузок
+                seed: li * 100 + k,
+                speed: 0.85 + (k % 3) * 0.12
+            });
+        }
+    });
+}
+
+
+// ===== ФЛОТЫ: маршрут строится в момент вылета и дальше заморожен =====
+// Координаты берутся из реальных позиций планет (planetPoint), а не из
+// нормализованных 0..1 — иначе борта «летают непонятно где».
+const FLEET_PAIRS = [
+    { a: 'earth',   b: 'mars',    art: 'jet_scout',    ships: 2 },
+    { a: 'mars',    b: 'jupiter', art: 'ion_courier',  ships: 2 },
+    { a: 'jupiter', b: 'saturn',  art: 'jet_hauler',   ships: 2 },
+    { a: 'earth',   b: 'jupiter', art: 'grav_frigate', ships: 1 }
+];
+let fltLayer = null, fltBuilt = false;
+const fltItems = [];
+
+function fltBezier(A, cp, B, t) {
+    const u = 1 - t;
+    return { x: u * u * A.x + 2 * u * t * cp.x + t * t * B.x,
+             y: u * u * A.y + 2 * u * t * cp.y + t * t * B.y };
+}
+
+
+// Маршрут флота с УПРЕЖДЕНИЕМ: летим не туда, где планета сейчас, а туда,
+// где она будет к моменту прибытия. Маршрут строится на момент вылета.
+function fleetRouteFor(fromId, toId, durMs) {
+    const A = planetPoint(fromId);
+    if (!A) return null;
+    let B = planetPoint(toId);
+    if (!B) return null;
+    const WC = window.WorldCoords;
+    if (WC && WC.planetAt && durMs > 0) {
+        // реальные мс показа -> игровые мс (при 60× это ×60), но не больше часа игры
+        const etaGameMs = Math.min(durMs * (timeScale || 60), 3600000);
+        const tgt = WC.planetAt(toId, simulatedTime + etaGameMs);
+        if (tgt) B = { x: tgt.x, y: tgt.y, size: tgt.size };
+    }
+    const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1;
+    const nx = dy / len, ny = -dx / len;
+    const midX = (A.x + B.x) / 2, midY = (A.y + B.y) / 2;
+    const side = (nx * midX + ny * midY) >= 0 ? 1 : -1;
+    let bulge = Math.min(46, Math.max(10, len * 0.12)) * side;
+    const dLine = Math.abs(A.x * B.y - B.x * A.y) / len;
+    if (dLine < 135) bulge = Math.min(70, Math.max(Math.abs(bulge), 135 - dLine + 25)) * side;
+    let cpx = midX + nx * bulge, cpy = midY + ny * bulge;
+    const cR = Math.hypot(cpx, cpy), limR = maxOrbitRadius * 0.92;
+    if (cR > limR) { cpx = cpx / cR * limR; cpy = cpy / cR * limR; }
+    return { A: A, B: B, cp: { x: cpx, y: cpy }, len: len };
+}
+
+function buildFleetUnits() {
+    if (fltBuilt) return;
+    // слой мог остаться от предыдущей попытки — не строим второй
+    const stale = document.getElementById('fleet-traffic');
+    if (stale && stale.childElementCount > 0) { fltBuilt = true; return; }
+    const host = document.querySelector('.solar-system');
+    if (!host) return;
+    fltLayer = document.createElement('div');
+    fltLayer.id = 'fleet-traffic';
+    fltLayer.style.cssText = 'position:absolute;left:50%;top:50%;width:0;height:0;overflow:visible;pointer-events:none;z-index:6;opacity:0';
+    try {
+        const e0 = planetPoint('earth');
+        fltLayer.dataset.dbg = 'planets=' + planetNodes.length + ' earth=' + (e0 ? 'ok' : 'null');
+    } catch (err) { fltLayer.dataset.dbg = 'err=' + err.message; }
+    host.appendChild(fltLayer);
+    const SVGNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(SVGNS, 'svg');
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
+    svg.style.cssText = 'position:absolute;inset:0;overflow:visible';
+    fltLayer.appendChild(svg);
+
+    FLEET_PAIRS.forEach((pair, pi) => {
+        const R0 = fleetRouteFor(pair.a, pair.b, 0);
+        if (!R0) return;
+        const A = R0.A, B = R0.B, cp = R0.cp, len = R0.len;
+
+        // пунктир — та же замороженная трасса, по которой идёт борт
+        const path = document.createElementNS(SVGNS, 'path');
+        path.setAttribute('d', 'M' + A.x + ' ' + A.y + ' Q' + cp.x + ' ' + cp.y + ' ' + B.x + ' ' + B.y);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', 'rgba(127,227,255,0.45)');
+        path.setAttribute('stroke-width', '1.3');
+        path.setAttribute('stroke-dasharray', '5 7');
+        svg.appendChild(path);
+        const routePath = path;
+
+        for (let k = 0; k < (pair.ships || 1); k++) {
+            const el = document.createElement('div');
+            el.className = 'ship-marker ship-marker--fleet';
+            el.dataset.role = 'own';
+            el.dataset.side = 'own';
+            let art = '/images/ships/vol/jet_scout.png';
+            try { if (typeof shipArtUrl === 'function') art = shipArtUrl(pair.art); } catch (e) { }
+            el.style.cssText = 'position:absolute;width:22px;height:22px;z-index:6;' +
+                'background:url(' + art + ') center/contain no-repeat;' +
+                'filter:drop-shadow(0 0 6px rgba(140,210,255,0.55))';
+            el.title = 'Флот: ' + pair.a + ' → ' + pair.b;
+            fltLayer.appendChild(el);
+            // Скорость борта — 100 км/с. Расстояние берём по шкале карты
+            // (1 а.е. = 185 px = 149.6 млн км), время считаем в игровых секундах,
+            // а для показа сжимаем до 20…120 реальных секунд (60×).
+            const kmPerPx = 149600000 / 185;
+            const distKm = Math.hypot(B.x - A.x, B.y - A.y) * kmPerPx;
+            // скорость из матрицы: масса, число двигателей, модернизация, технологии
+            let vKmS = 100;
+            try {
+                if (window.SpeedModel) {
+                    const lvl = (currentUser && currentUser.engineLevel) || 0;
+                    const tech = (currentUser && currentUser.techLevel) || 0;
+                    vKmS = window.SpeedModel.speedKmS(pair.art, { engineLevel: lvl, techLevel: tech }) || 100;
+                }
+            } catch (e) { }
+            const durGame = distKm / vKmS;                 // игровых секунд
+            const durRealRaw = durGame / 60;              // реальных секунд при 60×
+            // показ рейса: целимся в 8 px/с по экрану (12…45 с на рейс)
+            const durShow = Math.max(12, Math.min(45, len / 8));
+            const compress = durRealRaw / durShow;
+            el._pathEl = routePath;
+            el.art = pair.art;
+            el._idx = fltItems.filter(x => !x.portalLoop).length;   // номер борта в расписании
+            el._fromId = pair.a; el._toId = pair.b; el._path = routePath;
+            // el._idx — номер борта в расписании; других источников быть не должно
+            el.dataset.sid = 'fleet-' + el._idx;
+            fltItems.push({ el: el, A: A, cp: cp, B: B, dur: durShow,
+                            fromId: pair.a, toId: pair.b, path: routePath, prevT: 0,
+                            t0: simulatedTime, phase: pi * 0.23 + k * 0.5,
+                            phase: pi * 0.23 + k * 0.5,
+                            distKm: distKm, durGame: durGame, compress: compress });
+        }
+    });
+    // ---- межсистемные рейсы ----
+    // Флот чужой системы не может «летать» по нашей карте: он выходит из Врат
+    // и уходит в Врата. Показываем короткий отрезок у портала, а не трассу
+    // через всю систему.
+    const P = null;   // Врата далеко за орбитами: межсистемные борта не рисуем на карте
+    if (P) {
+        const inX = P.x * 0.86, inY = P.y * 0.86;   // точка чуть ближе к Солнцу
+        const outX = P.x * 1.06, outY = P.y * 1.06; // чуть снаружи
+        for (let k = 0; k < 2; k++) {
+            const el = document.createElement('div');
+            el.className = 'ship-marker ship-marker--fleet ship-marker--portal';
+            let art = '/images/ships/vol/jet_scout.png';
+            try { if (typeof shipArtUrl === 'function') art = shipArtUrl('ion_courier'); } catch (e) { }
+            el.style.cssText = 'position:absolute;width:22px;height:22px;z-index:6;opacity:.75;' +
+                'background:url(' + art + ') center/contain no-repeat;' +
+                'filter:drop-shadow(0 0 6px rgba(160,120,255,0.6))';
+            el.title = 'Межсистемный рейс · Врата';
+            fltLayer.appendChild(el);
+            fltItems.push({ el: el, A: { x: outX, y: outY }, cp: { x: P.x, y: P.y },
+                            B: { x: inX, y: inY }, dur: 26, phase: k * 0.5, portal: true });
+        }
+        const path = document.createElementNS(SVGNS, 'path');
+        path.setAttribute('class', 'route-line');
+        path.setAttribute('d', 'M' + outX + ' ' + outY + ' Q' + P.x + ' ' + P.y + ' ' + inX + ' ' + inY);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', 'rgba(170,140,255,0.55)');
+        path.setAttribute('stroke-width', '1.2');
+        path.setAttribute('stroke-dasharray', '4 6');
+        svg.appendChild(path);
+    }
+
+    // гражданские борта не должны отлетать далеко от своей планеты
+    civilItems.forEach(it => {
+        if (it.kind !== 'platform') it.radius = Math.min(it.radius || 18, 26);
+    });
+    // Борта у Врат убраны: они крутились по эллипсу «ни туда ни сюда».
+    if (fltItems.length) fltBuilt = true;
+    window.__fltDebug = fltItems.map(it => ({
+        t: it.fromId || (it.portalLoop ? 'portal' : '?'),
+        A: it.A ? [Math.round(it.A.x), Math.round(it.A.y)] : null,
+        B: it.B ? [Math.round(it.B.x), Math.round(it.B.y)] : null,
+        tl: it.tl ? it.tl.total : null
+    }));
+}
+
+
+// ===== ТАЙМЛАЙН РЕЙСА =====
+// Полный цикл: погрузка -> взлёт -> ускорение -> крейсерский ход ->
+// подход/приземление -> разгрузка (+ ожидание на орбите, если доки заняты).
+// Минимум 5 минут ИГРОВОГО времени на рейс, независимо от длины плеча.
+const FLEET_PHASES = {
+    // стоянки короткие: длинные паузы на 60× выглядели как «дёрганое» движение
+    load: 25,        // погрузка у станции
+    takeoff: 10,     // отрыв и выход на орбиту
+    accel: 20,       // разгон
+    land: 15,        // подход и приземление
+    unload: 25,      // разгрузка
+    dockWait: 60,    // ожидание свободного дока (при занятости)
+    minTotal: 300,   // 5 игровых минут — минимум на рейс
+    targetPxSec: 2.5 // целевая экранная скорость борта
+};
+
+function fleetTimeline(lenPx) {
+    const P = FLEET_PHASES;
+    const scale = timeScale || 60;
+    // крейсер: столько игровых секунд, чтобы на экране борт шёл ~2,5 px/с
+    let cruise = Math.max(60, (lenPx / P.targetPxSec) * scale);
+    // ожидание на орбите: если все доки заняты
+    let wait = 0;
+    try {
+        const u = window.getCurrentUser ? window.getCurrentUser() : null;
+        const ships = (u && u.ships) ? u.ships.length : 0;
+        const slots = (u && typeof u.dockSlots === 'number') ? u.dockSlots : 1;
+        if (ships >= slots) wait = P.dockWait;
+    } catch (e) { }
+    let total = P.load + P.takeoff + P.accel + cruise + P.land + P.unload + wait;
+    // Скорость крейсера ОДНА для всех плеч — 2,5 px/с по экрану.
+    // Если рейс короче 5 игровых минут, недостаток уходит в ожидание у станции.
+    // ожидание у станции ограничено: иначе короткие плечи почти всё время стоят
+    wait = Math.min(wait + Math.max(0, P.minTotal - total), 30);
+    total = P.load + P.takeoff + P.accel + cruise + P.land + P.unload + wait;
+    return { load: P.load, takeoff: P.takeoff, accel: P.accel, cruise: cruise,
+             land: P.land, unload: P.unload, wait: wait, total: total };
+}
+
+// ЛИНИИ МАРШРУТОВ ФЛОТА: без них борта «летали без маршрутов».
+const FLEET_RING = ['earth', 'mars', 'jupiter', 'saturn'];
+let fleetRouteSvg = null;
+let fleetRoutePaths = [];
+
+function ensureFleetRoutes() {
+    if (fleetRouteSvg) return;
+    const scene = document.querySelector('.solar-system');
+    if (!scene) return;
+    fleetRouteSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    fleetRouteSvg.setAttribute('class', 'fleet-routes');
+    fleetRouteSvg.setAttribute('width', '1');
+    fleetRouteSvg.setAttribute('height', '1');
+    fleetRouteSvg.setAttribute('overflow', 'visible');
+    fleetRouteSvg.style.cssText = 'position:absolute;left:0;top:0;overflow:visible;pointer-events:none;z-index:1;';
+    scene.appendChild(fleetRouteSvg);
+    for (let i = 0; i < FLEET_RING.length; i++) {
+        const a = FLEET_RING[i], b = FLEET_RING[(i + 1) % FLEET_RING.length];
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('class', 'fleet-route');
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', 'rgba(143, 214, 255, 0.35)');
+        path.setAttribute('stroke-width', '1');
+        path.setAttribute('stroke-dasharray', '5 7');
+        fleetRouteSvg.appendChild(path);
+        fleetRoutePaths.push({ a: a, b: b, el: path });
+    }
+}
+
+function updateFleetRoutes() {
+    ensureFleetRoutes();
+    fleetRoutePaths.forEach(function (r) {
+        const A = planetPoint(r.a), B = planetPoint(r.b);
+        if (!A || !B) return;
+        r.el.setAttribute('d', 'M' + A.x.toFixed(1) + ' ' + A.y.toFixed(1) +
+            ' L' + B.x.toFixed(1) + ' ' + B.y.toFixed(1));
+    });
+}
+
+function updateFleetTraffic() {
+    alignAllLayers();
+    if (!fltBuilt) {
+        // ждём, пока планеты появятся в planetNodes: до этого planetPoint() = null
+        if (!planetNodes.length) return;
+        // планеты могут быть в списке, но ещё без координат — тогда маршруты
+        // получились бы из точки (0,0), и борта стояли бы в центре Солнца
+        const e0 = planetPoint('earth');
+        if (!e0 || Math.hypot(e0.x, e0.y) < 50) return;
+        buildFleetUnits();
+        if (!fltBuilt) return;
+    }
+    const scene = document.querySelector('.solar-system');
+    if (scene && fltLayer && fltLayer.parentNode !== scene) scene.appendChild(fltLayer);
+    // время берём игровое: иначе переключатель скорости на флоты не влияет
+    const now = simulatedTime / 1000;
+    if (window.Motion) window.Motion.setTime(simulatedTime);
+    fltItems.forEach(it => {
+        try {
+            if (!window.Motion) return;
+            // портальный контур: гладкий эллипс вокруг Врат
+            if (it.portalLoop) {
+                if (it.t0p === undefined) it.t0p = simulatedTime;
+                const sec = (simulatedTime - it.t0p) / 1000;
+                const ang = (sec / 60) * Math.PI * 2 + (it.phase || 0) * Math.PI * 2;
+                const px = it.P.x + Math.cos(ang) * 46;
+                const py = it.P.y + Math.sin(ang) * 26;
+                if (window.SceneBridge && window.SceneBridge.on()) {
+                    const pid = 'portal-' + (it.el._idx !== undefined ? it.el._idx : (it.shipIndex || 0));
+                    window.SceneBridge.watch(pid, it.el, 12);
+                    window.SceneBridge.publish(pid, { x: px, y: py, ang: ang * 180 / Math.PI + 90, opacity: 1 });
+                } else {
+                    legacyPose(it.el, px, py, ang * 180 / Math.PI + 90, { opacity: 1 });
+                }
+                return;
+            }
+            // обычный борт: расписание из Motion (ближайший заказ, без «туда-обратно»)
+            // номер борта лежит на DOM-элементе (el._idx), а не на элементе массива
+            if (it.shipIndex === undefined) {
+                // индексы обязаны быть уникальными: два борта с одним индексом
+                // встают в одну точку (тестировщик ловил слипание 0.0 px)
+                const used = window.__fleetIdxUsed = window.__fleetIdxUsed || new Set();
+                let idx = (it.el && it.el._idx !== undefined) ? it.el._idx : it._idx;
+                if (idx === undefined || used.has(idx)) {
+                    idx = 0;
+                    while (used.has(idx) && idx < 400) idx++;
+                }
+                used.add(idx);
+                it.shipIndex = idx;
+            }
+            const ps = window.Motion.shipPose(it.shipIndex, simulatedTime);
+            if (!ps) return;
+            // визуальный развод: два борта с одинаковой фазой не должны слипаться
+            const off = (it.shipIndex % 12) * 0.7;
+            const offA = (it.shipIndex * 2.399) % 6.28;
+            ps.x += Math.cos(offA) * off;
+            ps.y += Math.sin(offA) * off;
+            if (it.el.style.left !== '') {
+                const d = Math.hypot(ps.x - (parseFloat(it.el.style.left) || 0),
+                                     ps.y - (parseFloat(it.el.style.top) || 0));
+                if (d > 25) {
+                    const fj = (window.__fj = window.__fj || { max: 0, jumps: 0, frames: 0, where: '' });
+                    fj.jumps++; if (d > fj.max) { fj.max = d; fj.where = 'ship' + it.shipIndex; }
+                }
+            }
+            // хвост только в полёте: на стоянке/погрузке его быть не должно
+            it.el.dataset.moving = (ps.phase === 'fly') ? '1' : '0';
+            it.el.dataset.role = 'own';
+            it.el.dataset.side = 'own';
+            if (!it.el.__dblBound) {
+                it.el.__dblBound = true;
+                it.el.addEventListener('dblclick', function (ev) {
+                    ev.stopPropagation();
+                    if (this._fleet && typeof openFleetCard === 'function') openFleetCard(this._fleet);
+                });
+            }
+            const msF = markerSize();
+            if (it.el.dataset.ms !== String(msF)) {
+                it.el.dataset.ms = String(msF);
+                if (!canvasMode()) {
+                    it.el.style.width = msF + 'px';
+                    it.el.style.height = msF + 'px';
+                }
+            }
+            // стоянка: сдвигаем ТОЛЬКО картинку, координаты остаются в планете —
+            // так борт не прячется под спрайтом планеты и нет разрыва траектории
+            const parked = (ps.phase === 'load' || ps.phase === 'unload' || ps.phase === 'wait');
+            if (window.SceneBridge && window.SceneBridge.on()) {
+                const fid = 'fleet-' + it.shipIndex;
+                window.SceneBridge.watch(fid, it.el, 12);
+                window.SceneBridge.publish(fid, {
+                    x: ps.x, y: ps.y, ang: ps.ang || 0,
+                    shiftY: parked ? 12 : 0,
+                    opacity: ps.opacity
+                });
+            } else {
+                legacyPose(it.el, ps.x, ps.y, ps.ang || 0, {
+                    shiftY: parked ? 12 : 0,
+                    scale: depthScale(ps.y),
+                    standUp: true,
+                    opacity: ps.opacity
+                });
+            }
+            const cargo = ps.cargo && ps.cargo !== '-' ? ' · ' + ps.cargo : '';
+            // скорость борта и его класс — сразу в подсказке
+            let vTxt = '';
+            try {
+                const art = it.art || 'jet_scout';
+                const v = window.Motion.shipSpeed(art,
+                    { engineLevel: (currentUser && currentUser.engineLevel) || 0,
+                      techLevel: (currentUser && currentUser.techLevel) || 0 });
+                const cls = (window.Motion.TABLES.ships[art] || {}).cls || 'light';
+                const clsRu = cls === 'truck' ? 'грузовик' : (cls === 'fighter' ? 'истребитель' : 'лёгкий');
+                vTxt = ' · ' + Math.round(v).toLocaleString('ru-RU') + ' км/с · ' + clsRu;
+            } catch (e) { }
+            const title = 'Флот · ' + (ps.from || ps.leg) + (ps.to ? ' → ' + ps.to : '') + cargo + vTxt;
+            if (it.el.title !== title) it.el.title = title;
+        } catch (err) {
+            if (!window.__fleetItemErr) window.__fleetItemErr =
+                String(err && err.message) + ' @ ' + String(err && err.stack || '').split('\n')[1];
+        }
+    });
+    // диагностика: видно, обновляются ли борта каждый кадр
+    try {
+        if (fltLayer) fltLayer.dataset.upd = String(Math.round(simulatedTime)) + '|' +
+            fltItems.length + '|' + (fltItems[0] ? fltItems[0].el.style.left : '-');
+    } catch (e) { }
+}
+
+// Глубина сцены: борт дальше по оси Y рисуется чуть меньше — появляется объём,
+// иначе на наклонной карте все спрайты выглядят одинаково плоскими.
+// Размер борта не зависит от зума: иначе при 0,3× он становится точкой.
+// РЕАЛЬНЫЙ РАЗМЕР КОРАБЛЯ ОТНОСИТЕЛЬНО ЛУНЫ.
+// Корабль 120 м, Луна 3474 км → отношение 3.45e-5. При «×4» корабль
+// на экране был бы 0.0017 px (невидим), поэтому оставлен минимум 2 px.
+const SHIP_LENGTH_KM = 0.12;
+const MOON_DIAMETER_KM = 3474;
+const SHIP_EXAGGERATION = 4;        // множитель владельца
+const SHIP_MIN_PX = 2;              // порог видимости
+const MOON_REF_PX = 12;             // типичный размер луны на экране
+
+function markerSize() {
+    const sc = (typeof scale === 'number' && scale > 0) ? scale : 1;
+    const moonPx = MOON_REF_PX / sc;
+    const realPx = moonPx * (SHIP_LENGTH_KM / MOON_DIAMETER_KM) * SHIP_EXAGGERATION;
+    return Math.max(SHIP_MIN_PX, Math.min(15, Math.round(realPx * 100) / 100));
+}
+
+function depthScale(y) {
+    const k = 0.86 + 0.26 * Math.max(0, Math.min(1, (y + 420) / 840));
+    return k.toFixed(2);
+}
+
+// Борт над плоскостью орбит: компенсируем наклон сцены (rotX), чтобы спрайт
+// не лежал «наклейкой» на полу, и слегка приподнимаем его.
+function standUp() {
+    // Объём: отменяем поворот сцены и компенсируем наклон ЧАСТИЧНО (60%),
+    // чтобы спрайт не выглядел плоской наклейкой, но и не «складывался в ребро».
+    const rx = (typeof rotX === 'number') ? rotX : 0;
+    const rz = (typeof rotZ === 'number') ? rotZ : 0;
+    return ' translateY(-4px) perspective(420px)' +
+           ' rotateZ(' + (-rz).toFixed(0) + 'deg)' +
+           ' rotateX(' + (-rx * 0.6).toFixed(0) + 'deg)';
+}
+
+// ===== РЕЙСЫ ЧЕРЕЗ ВРАТА =====
+// Врата — статичная точка. Борт летит Земля -> Врата и исчезает,
+// встречный появляется у Врат и летит к Земле. Один и тот же закон времени.
+let portalRouteShips = [];
+function buildPortalTraffic() {
+    if (portalRouteShips.length || !tradeLayer) return;
+    const P0 = planetPoint('earth'), PG = portalPoint();
+    if (!P0 || !PG) return;
+
+    const svg = tradeLayer.querySelector('svg.trade-paths');
+    if (svg) {
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('class', 'trade-path portal-path');
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', 'rgba(138, 180, 248, 0.55)');
+        path.setAttribute('stroke-width', '1.2');
+        path.setAttribute('stroke-dasharray', '6 7');
+        path.setAttribute('d', 'M' + P0.x + ' ' + P0.y + ' L' + PG.x + ' ' + PG.y);
+        svg.appendChild(path);
+    }
+
+    for (let k = 0; k < 2; k++) {
+        const el = document.createElement('div');
+        el.className = 'ship-marker trade-ship';
+        el.style.backgroundImage = 'url(' + shipArtUrl('ion_courier') + ')';
+        el.style.pointerEvents = 'none';
+        el.style.zIndex = '2';
+        el.title = k === 0 ? 'рейс · Земля → Врата' : 'рейс · Врата → Земля';
+        tradeLayer.appendChild(el);
+        portalRouteShips.push({ el: el, outbound: k === 0, phase: k * 0.5 });
+    }
+}
+
+// ЕДИНЫЙ РЕЕСТР БОРТОВ: единственная схема управления и отрисовки.
+// Любой борт регистрируется здесь и получает позу ТОЛЬКО из motion.js.
+const SHIP_REGISTRY = new Map();
+window.__shipRegistry = SHIP_REGISTRY;
+
+function registerShip(id, el, poseFn) {
+    if (!id || !el || typeof poseFn !== 'function') return;
+    SHIP_REGISTRY.set(id, { el: el, pose: poseFn });
+}
+
+function unregisterShip(id) { SHIP_REGISTRY.delete(id); }
+
+function updateShipsUnified() {
+    SHIP_REGISTRY.forEach(function (rec, id) {
+        let pose = null;
+        try { pose = rec.pose(simulatedTime); } catch (e) { pose = null; }
+        if (!pose) return;
+        if (!scenePublish(id, rec.el, {
+            x: pose.x, y: pose.y, ang: pose.ang, opacity: pose.opacity
+        })) {
+            legacyPose(rec.el, pose.x, pose.y, pose.ang, { opacity: pose.opacity });
+        }
+    });
+}
+
+function updatePortalTraffic() {
+    if (!portalRouteShips.length) return;
+    const P0 = planetPoint('earth'), PG = portalPoint();
+    if (!P0 || !PG) return;
+
+    // линия Врат — статичная
+    portalRouteShips.forEach(function (sh) {
+        const id = 'portal-' + (sh.outbound ? 'out' : 'in');
+        registerShip(id, sh.el, function (tMs) {
+            const A = sh.outbound ? planetPoint('earth') : portalPoint();
+            const B = sh.outbound ? portalPoint() : planetPoint('earth');
+            if (!A || !B) return null;
+            return window.Motion.segmentPose(A.x, A.y, B.x, B.y, 'ion_courier', sh.phase, tMs);
+        });
+    });
+}
+
+function updateTradeTraffic() {
+    window.__tradeDbg = [];
+    alignAllLayers();
+    if (!tradeBuilt) { buildTradeTraffic(); return; }
+    // Слой должен жить ВНУТРИ трансформируемой сцены, иначе при сдвиге/зуме
+    // карты планеты уезжают, а корабли остаются на месте — «летают непонятно где».
+    const scene = document.querySelector('.solar-system');
+    if (scene && tradeLayer && tradeLayer.parentNode !== scene) {
+        scene.appendChild(tradeLayer);
+    }
+    const now = simulatedTime;
+    TRADE_LINKS.forEach((link, li) => {
+        // Врата стоят далеко за орбитами: трасса от них уводит борта «в пустоту»
+        if (link.a === 'portal' || link.b === 'portal') return;
+        const A = planetPoint(link.a), B = planetPoint(link.b);
+        if (!A || !B) return;
+        const dx = B.x - A.x, dy = B.y - A.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const nx = dy / len, ny = -dx / len;
+        const midX = (A.x + B.x) / 2, midY = (A.y + B.y) / 2;
+        const outward = (nx * midX + ny * midY) >= 0 ? 1 : -1;
+        let bulge = Math.min(120, Math.max(18, len * 0.22)) * outward;
+
+        // Баллистика: трасса не должна проходить близко к Солнцу.
+        // Считаем минимальное расстояние от Солнца (0,0) до хорды и, если
+        // она идёт слишком близко, отводим дугу в сторону с большим зазором.
+        const SUN_SAFE = 135;                 // минимальный зазор от светила, px
+        const dLine = Math.abs(A.x * B.y - B.x * A.y) / len;
+        if (dLine < SUN_SAFE && !(link.a === 'portal' || link.b === 'portal')) {
+            const side = (nx * midX + ny * midY) >= 0 ? 1 : -1;
+            const need = (SUN_SAFE - dLine) + Math.min(90, len * 0.18);
+            bulge = (bulge >= 0 ? 1 : -1) * Math.max(Math.abs(bulge), need) * side * side;
+            bulge = Math.abs(bulge) * (side || outward);
+        }
+        const cx = midX + nx * bulge, cy = midY + ny * bulge;
+        // Пунктир перерисовывается КАЖДЫЙ кадр по живым координатам планет:
+        // раньше путь строился один раз и «отставал» от бортов.
+        if (tradePaths[li]) {
+            tradePaths[li].setAttribute('d',
+                'M' + A.x.toFixed(1) + ' ' + A.y.toFixed(1) +
+                ' Q' + cx.toFixed(1) + ' ' + cy.toFixed(1) +
+                ' ' + B.x.toFixed(1) + ' ' + B.y.toFixed(1));
+        }
+
+        const path = tradePaths[li];
+        if (path) {
+            path.setAttribute('d', `M ${A.x.toFixed(1)} ${A.y.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${B.x.toFixed(1)} ${B.y.toFixed(1)}`);
+        }
+
+        // длина дуги Безье ≈ хорда + 2/3 стрелки прогиба
+        const arcLen = len + Math.abs(bulge) * 0.66;
+        // у Солнца борт теряет скорость на преодоление притяжения
+        const sunGap = Math.abs(A.x * B.y - B.x * A.y) / len;
+        const gravityCost = sunGap < 260 ? 1 + (260 - sunGap) / 260 * 0.35 : 1;
+        // ЕДИНЫЙ алгоритм: скорость класса, разгон/торможение, та же формула, что у флота
+        tradeShips.filter(s => s.link === li).forEach((ship, idx) => {
+            const pth = tradePaths[li];
+            ship.el._pathEl = pth || null;
+            const ps = window.Motion && window.Motion.curvePose
+                ? window.Motion.curvePose(A.x, A.y, cx, cy, B.x, B.y,
+                      ship.art || 'ion_courier',
+                      // фаза — чистая функция seed: не зависит от count и порядка
+                      ((ship.seed || 0) * 0.137 + 0.5) % 1, simulatedTime)
+                : null;
+            if (!ps) return;
+            // диагностика: видно, какая длина и период легли в расчёт
+            ship.el.dataset.dbg = Math.round(ps.span) + '|' + Math.round(ps.km) + '|' + Math.round(ps.lenPx);
+            (window.__tradeDbg = window.__tradeDbg || []).push({
+                link: li, seed: ship.seed, art: ps.art, v: Math.round(ps.vKmS),
+                span: Math.round(ps.span), km: Math.round(ps.km),
+                tIn: ps.tIn, el: Math.round(ps.el), cyc: ps.cyc, u: +ps.u.toFixed(4),
+                ph: ps.phaseUsed,
+                lenPx: ps.lenPx, ax: ps.ax, ay: ps.ay, bx: ps.bx, by: ps.by
+            });
+            if (Math.hypot(ps.x, ps.y) > maxOrbitRadius * 1.08) {
+                ship.el.style.display = 'none';
+            } else {
+                ship.el.style.display = '';
+            }
+            // диагностика: что посчитало ядро и что попало в стиль
+            ship.el.dataset.coreX = ps.x.toFixed(1);
+            ship.el.dataset.coreY = ps.y.toFixed(1);
+            ship.el.dataset.u = ps.u.toFixed(5);
+            ship.el.dataset.el = String(Math.round(ps.el));
+            ship.el.dataset.cyc = String(ps.cyc);
+            ship.el.dataset.ph = String(ps.phaseUsed);
+            ship.el.dataset.t = String(Math.round(simulatedTime));
+            ship.el.dataset.len = String(ps.lenPx);
+            ship.el.dataset.span = String(Math.round(ps.span));
+            ship.el.dataset.now = String(Math.round(simulatedTime));
+            ship.el.dataset.pst = String(Math.round(ps.tIn));
+            ship.el.dataset.art = ps.art;
+            ship.el.dataset.ax = String(Math.round(ps.ax));
+            ship.el.dataset.by = String(Math.round(ps.by));
+            ship.el.dataset.moving = (ps.phase === 'fly') ? '1' : '0';
+            const art = ship.art || 'ion_courier';
+            ship.el.dataset.role = /^plasma/.test(art) ? 'fighter'
+                : (/jet_hauler|grav_|ion_prospector/.test(art) ? 'freight' : 'trade');
+            ship.el.dataset.side = 'npc';
+            if (!ship.el.__dblBound) {
+                ship.el.__dblBound = true;
+                ship.el.addEventListener('dblclick', function (ev) {
+                    ev.stopPropagation();
+                    var ri = parseInt(this.getAttribute('data-route'), 10);
+                    if (!isNaN(ri) && typeof openTrafficCard === 'function') openTrafficCard(ri);
+                });
+            }
+            const msT = markerSize();
+            if (ship.el.dataset.ms !== String(msT)) {
+                ship.el.dataset.ms = String(msT);
+                if (!canvasMode()) {
+                    ship.el.style.width = msT + 'px';
+                    ship.el.style.height = msT + 'px';
+                }
+            }
+            // НОВЫЙ СЛОЙ: позицию пишет только scene.js (флаг ?scene=2).
+            const bridgeId = 'trade-' + (ship.seed || 0);
+            if (window.SceneBridge && window.SceneBridge.on()) {
+                window.SceneBridge.watch(bridgeId, ship.el, 12);
+                window.SceneBridge.publish(bridgeId, {
+                    x: ps.x, y: ps.y, ang: ps.ang,
+                    hidden: (ps.phase !== 'fly' && ps.phase !== 'load')
+                });
+            } else {
+                legacyPose(ship.el, ps.x, ps.y, ps.ang, { scale: depthScale(ps.y), standUp: true });
+            }
+            if (ship.el.dataset.coreX !== String(parseFloat(ps.x.toFixed(1)))) {
+                window.__overwritten = (window.__overwritten || 0) + 1;
+            }
+        });
+    });
+}
+
+function buildCivilTraffic() {
+    if (civilBuilt || !planetNodes.length) return;
+    const host = trafficHost();
+    if (!host) return;
+    civilBuilt = true;
+    civilLayer = document.createElement('div');
+    civilLayer.id = 'civil-traffic';
+    civilLayer.style.cssText = 'position:absolute;left:50%;top:50%;width:0;height:0;overflow:visible;pointer-events:none;z-index:4';
+    host.appendChild(civilLayer);
+
+    // 1) снабжение колоний: шаттлы вокруг планет с обитаемыми лунами
+    planetNodes.forEach((n, i) => {
+        const pid = n.id ||
+                    (n.planet && n.planet.getAttribute && n.planet.getAttribute('data-planet-id')) ||
+                    (n.data && n.data.id) || '';
+        const gasMoons = CIVIL_GAS_MOONS[pid];
+        const colonyMoon = CIVIL_COLONY_MOON[pid];
+        if (gasMoons) {
+            // танкеры вокруг лун: заводы стоят на них, а не на гиганте
+            gasMoons.forEach((moonName, mi) => {
+                for (let k = 0; k < 1; k++) {
+                    const el = civilMarker('jet_hauler', 'газовый танкер · ' + moonName + ' → орбита');
+                    civilLayer.appendChild(el);
+                    civilItems.push({
+                        el: el, kind: 'gas', planetIndex: i, moonName: moonName,
+                        radius: 15 + k * 6,
+                        phase: (mi / gasMoons.length) * Math.PI * 2 + k,
+                        speed: 1.1 + k * 0.2
+                    });
+                }
+            });
+            return;
+        }
+        // Лунная линия: борта идут между планетой и её луной (Земля ↔ Луна)
+        if (pid === 'earth') {
+            for (let k = 0; k < 5; k++) {
+                const el = civilMarker(k % 2 ? 'jet_hauler' : 'ion_courier',
+                    'лунная линия · Земля ↔ Луна');
+                civilLayer.appendChild(el);
+                civilItems.push({
+                    el: el, kind: 'lunar', planetIndex: i, moonName: 'Луна',
+                    phase: k / 5, speed: 1 + k * 0.07
+                });
+            }
+        }
+        if (!colonyMoon) return;
+        for (let k = 0; k < 3; k++) {
+            const planetRu = { earth: 'Земля', mars: 'Марс' }[pid] || (n.name || pid);
+            const el = civilMarker(k === 0 ? 'jet_hauler' : 'ion_courier',
+                'снабжение колонии · ' + planetRu + ' → ' + colonyMoon);
+            civilLayer.appendChild(el);
+            civilItems.push({
+                el: el, kind: 'colony', planetIndex: i,
+                radius: (n.size || 20) + 22 + k * 7,
+                phase: (k / 3) * Math.PI * 2 + i,
+                speed: 1 + k * 0.12
+            });
+        }
+    });
+
+    // 1б) гравитационные платформы: видны только при приближении ×4 и ближе
+    planetNodes.forEach((n, i) => {
+        const el = document.createElement('div');
+        el.className = 'gravity-platform';
+        el.style.cssText = 'position:absolute;width:26px;height:10px;pointer-events:none;' +
+            'background:linear-gradient(90deg,rgba(127,227,255,.15),rgba(127,227,255,.75),rgba(127,227,255,.15));' +
+            'border-top:1px solid rgba(127,227,255,.85);border-bottom:1px solid rgba(127,227,255,.35);' +
+            'box-shadow:0 0 10px rgba(127,227,255,.45);border-radius:3px;display:none;z-index:4';
+        civilLayer.appendChild(el);
+        civilItems.push({
+            el: el, kind: 'platform', planetIndex: i,
+            radius: (n.size || 20) + 34,
+            phase: i * 0.9,
+            speed: 0.45
+        });
+    });
+
+    // 2) рудные борта в поясе астероидов.
+    // Пояс лежит МЕЖДУ орбитами Марса и Юпитера — радиусы берём от живых планет,
+    // а не из «астрономических» констант, иначе борта уезжали за пояс.
+    const pMars = planetPoint('mars'), pJup = planetPoint('jupiter');
+    const rMars = pMars ? Math.hypot(pMars.x, pMars.y) : orbitRadius(1.52);
+    const rJup = pJup ? Math.hypot(pJup.x, pJup.y) : orbitRadius(5.2);
+    const beltInner = rMars * 1.18;
+    const beltOuter = rJup * 0.82;
+    for (let k = 0; k < 8; k++) {
+        const el = civilMarker(k % 2 ? 'ion_prospector' : 'jet_hauler',
+            'рудный транспорт · пояс астероидов');
+        // честные цифры для карточки: ~2.7 а.е. от Солнца, оборот ~4,6 года
+        el._fleet.distKm = 400000000;
+        el._fleet.hours = 40300;
+        el.dataset.dist = '400000000';
+        el.dataset.hours = '40300';
+        civilLayer.appendChild(el);
+        el.dataset.sid = 'belt-' + k;
+        civilItems.push({
+            el: el, kind: 'belt', planetIndex: -1,
+            radius: beltInner + (beltOuter - beltInner) * ((k + 0.5) / 8),
+            phase: (k / 8) * Math.PI * 2,
+            speed: 0.6
+        });
+    }
+
+    // ПИРАТЫ: три борта, у каждого свой цикл «набег -> домой с добычей -> пир»
+    for (let k = 0; k < 3; k++) {
+        const el = civilMarker(k === 0 ? 'plasma_interceptor' : (k === 1 ? 'jet_scout' : 'plasma_fighter'),
+            'пират · набег и дележ добычи');
+        el.dataset.sid = 'pirate-' + k;
+        civilLayer.appendChild(el);
+        civilItems.push({
+            el: el, kind: 'pirate', planetIndex: -1,
+            idx: k, phase: k * 0.33
+        });
+    }
+}
+
+// Планеты строятся асинхронно — ждём их появления и только тогда ставим борта.
+function ensureCivilSoon(tries) {
+    tries = tries || 0;
+    if (planetNodes && planetNodes.length) {
+        if (!civilBuilt) { civilBuilt = false; buildCivilTraffic(); updateCivilTraffic(); }
+        return;
+    }
+    if (tries < 60) setTimeout(function () { ensureCivilSoon(tries + 1); }, 250);
+}
+
+// ===== ГРАВИТАЦИОННЫЕ ЛИФТЫ =====
+// Локальная торговля луна <-> планета идёт не кораблями, а лифтом:
+// на карте это тонкая линия с бегущими штрихами от планеты к луне.
+let elevatorSvg = null;
+const elevatorPaths = new Map();
+
+function ensureElevatorLayer() {
+    if (elevatorSvg) return;
+    const scene = document.querySelector('.solar-system');
+    if (!scene) return;
+    elevatorSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    elevatorSvg.setAttribute('class', 'elevator-layer');
+    elevatorSvg.setAttribute('width', '1');
+    elevatorSvg.setAttribute('height', '1');
+    elevatorSvg.setAttribute('overflow', 'visible');
+    elevatorSvg.style.cssText = 'position:absolute;left:0;top:0;overflow:visible;pointer-events:none;z-index:1;';
+    scene.appendChild(elevatorSvg);
+}
+
+function updateElevators() {
+    if (!moonNodes.length) return;
+    ensureElevatorLayer();
+    if (!elevatorSvg) return;
+
+    for (const n of moonNodes) {
+        if (!n.moon || !n.faction) continue;
+        const name = n.moon.getAttribute('data-moon') || '';
+        const host = n.moon.closest('.planet');
+        // координаты планеты: берём из planetNodes по совпадению DOM
+        const hostNode = planetNodes.find(pn => pn.planet === host);
+        if (!hostNode || hostNode.x === undefined) continue;
+
+        let path = elevatorPaths.get(n.moon);
+        if (!path) {
+            path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('fill', 'none');
+            path.setAttribute('stroke', n.faction.color);
+            path.setAttribute('stroke-width', '1');
+            path.setAttribute('stroke-dasharray', '3 6');
+            path.setAttribute('stroke-opacity', '0.55');
+            path.setAttribute('class', 'elevator' + ((name === 'Луна' || name === 'Фобос') ? ' spaceport' : ''));
+            elevatorSvg.appendChild(path);
+            elevatorPaths.set(n.moon, path);
+        }
+        const x1 = hostNode.x, y1 = hostNode.y;
+        const x2 = hostNode.x + (n.lastMx || 0), y2 = hostNode.y + (n.lastMy || 0);
+        path.setAttribute('d', 'M' + x1.toFixed(1) + ' ' + y1.toFixed(1) + ' L' + x2.toFixed(1) + ' ' + y2.toFixed(1));
+    }
+}
+
+// ЕДИНСТВЕННЫЙ старый писатель позиции (аварийный путь ?scene=1).
+// Весь остальной код обязан писать позиции только через scenePublish().
+function legacyPose(el, x, y, ang, opts) {
+    opts = opts || {};
+    const cid = el.dataset.sid || el.title || '';
+    if (cid) {
+        const capped = capSpeed('L:' + cid, { x: x, y: y });
+        x = capped.x; y = capped.y;
+    }
+    if (canvasMode()) {
+        try {
+            const sid = el.dataset.sid || ('el-' + (el._pid || (el._pid = ++window.__pidSeq || 1)));
+            const art = (el.style.backgroundImage || '').match(/ships\/vol\/([a-z_]+)\.png/);
+            window.__poseExtra.set(sid, {
+                x: x, y: y, ang: ang, opacity: opts.opacity,
+                art: art ? art[1] : 'ion_courier',
+                px: parseFloat(el.dataset.ms) || parseFloat(el.style.width) || 8,
+                side: el.dataset.side || ''
+            });
+        } catch (e) { }
+        return;
+    }
+    el.style.left = x.toFixed(1) + 'px';
+    el.style.top = y.toFixed(1) + 'px';
+    var shift = opts.shiftY ? ' translate(0,' + opts.shiftY + 'px)' : '';
+    var scale = opts.scale ? ' scale(' + opts.scale + ')' : '';
+    el.style.transform = 'translate(-50%,-50%)' + shift + scale +
+        (opts.standUp ? standUp() : '') +
+        (ang === undefined || ang === null ? '' : ' rotate(' + ang.toFixed(1) + 'deg)');
+    if (opts.opacity !== undefined) el.style.opacity = String(opts.opacity);
+}
+
+// Отдать позу новому слою. Возвращает true, если позицию пишет scene.js
+// и старые записи делать НЕ нужно.
+// Кэш поз для canvas-рендера (?render=canvas)
+window.__poseCache = window.__poseCache || new Map();
+window.__poseExtra = window.__poseExtra || new Map();   // позы из аварийного пути
+
+function canvasMode() {
+    return document.body.classList.contains('render-canvas');
+}
+
+// ОБЩИЙ ОГРАНИЧИТЕЛЬ СКОРОСТИ ДЛЯ ВСЕХ СЛОЁВ:
+// ни один борт не должен смещаться быстрее 1 px за 45 игровых секунд.
+// Порог мягкий (×2.2) — на разгон/торможение smoothstep, но телепорты режет.
+// страховка только от телепортов: 12 px за 45 игровых секунд
+// (≈0,7 c) — физика классов (0,1–0,3 c) под ограничитель больше не попадает
+const SPEED_CAP_PX_PER_GS = 12 / 45;
+window.__pubLast = window.__pubLast || new Map();
+
+function capSpeed(id, pose) {
+    if (!pose || !isFinite(pose.x) || !isFinite(pose.y)) return pose;
+    const prev = window.__pubLast.get(id);
+    if (prev && isFinite(simulatedTime)) {
+        const dtGs = Math.max(0, (simulatedTime - prev.t) / 1000);
+        const maxStep = dtGs * SPEED_CAP_PX_PER_GS;
+        const dx = pose.x - prev.x, dy = pose.y - prev.y;
+        const d = Math.hypot(dx, dy);
+        if (dtGs > 0 && maxStep > 0 && d > maxStep) {
+            const k = maxStep / d;
+            pose.x = prev.x + dx * k;
+            pose.y = prev.y + dy * k;
+            window.__capped = (window.__capped || 0) + 1;
+        }
+    }
+    window.__pubLast.set(id, { x: pose.x, y: pose.y, t: simulatedTime });
+    return pose;
+}
+
+function scenePublish(id, el, pose) {
+    pose = capSpeed(id, pose);
+    if (canvasMode()) {
+        // ВАЖНО: не вызываем SceneBridge — он пишет style.transform.
+        // Поза уходит только в кэш, рисует canvas.
+        try {
+            const art = (el.style.backgroundImage || '').match(/ships\/vol\/([a-z_]+)\.png/);
+            window.__poseCache.set(id, {
+                x: pose.x, y: pose.y, ang: pose.ang, opacity: pose.opacity,
+                art: art ? art[1] : 'ion_courier',
+                px: parseFloat(el.dataset.ms) || 8,
+                side: el.dataset.side || ''
+            });
+        } catch (e) { }
+        return true;
+    }
+    try {
+        const art = (el.style.backgroundImage || '').match(/ships\/vol\/([a-z_]+)\.png/);
+        window.__poseCache.set(id, {
+            x: pose.x, y: pose.y, ang: pose.ang, opacity: pose.opacity,
+            art: art ? art[1] : 'ion_courier',
+            px: parseFloat(el.dataset.ms) || 8,
+            side: el.dataset.side || ''
+        });
+    } catch (e) { }
+    if (!window.SceneBridge || !window.SceneBridge.on()) return false;
+    window.SceneBridge.watch(id, el, 12);
+    window.SceneBridge.publish(id, pose);
+    return true;
+}
+
+function civilId(it) {
+    if (!it.bridgeId) {
+        it.bridgeId = (it.el && it.el.dataset && it.el.dataset.sid) ||
+            ('civil-' + (it.el && it.el._idx !== undefined ? it.el._idx : Math.random().toString(36).slice(2, 7)));
+    }
+    return it.bridgeId;
+}
+
+// Стабильные идентификаторы всем гражданским маркерам — нужны и мосту,
+// и замерам (в старом пути их раньше не было вовсе).
+function stampCivilSids() {
+    civilItems.forEach(function (it, i) {
+        if (it.el && !it.el.dataset.sid) it.el.dataset.sid = 'civil-' + i;
+    });
+}
+
+function updateCivilTraffic() {
+    alignAllLayers();
+    if (!civilItems.length) { buildCivilTraffic(); return; }
+    const scene2 = document.querySelector('.solar-system');
+    if (scene2 && civilLayer && civilLayer.parentNode !== scene2) {
+        scene2.appendChild(civilLayer);
+    }
+    const t = simulatedTime / 1000;                      // игровые секунды
+    // Индекс планеты мог устареть после пересборки planetNodes — тогда борт
+    // «отклеивался» и висел в стороне. Привязываем по названию из подписи.
+    const PID_BY_NAME = { 'Земля': 'earth', 'Марс': 'mars', 'Юпитер': 'jupiter', 'Сатурн': 'saturn' };
+    stampCivilSids();
+    for (const it of civilItems) {
+        // локальная торговля луна-планета идёт ЛИФТОМ, а не кораблями
+        if (it.kind === 'lunar') { if (it.el) it.el.style.display = 'none'; continue; }
+        const label = (it.el && it.el.title) || '';
+        for (const nm in PID_BY_NAME) {
+            if (label.indexOf(nm) >= 0) {
+                const idx = planetNodes.findIndex(n => (n.id || '') === PID_BY_NAME[nm]);
+                if (idx >= 0) it.planetIndex = idx;
+                break;
+            }
+        }
+        let cx = 0, cy = 0;
+        if (it.kind === 'platform') {
+            const n = planetNodes[it.planetIndex];
+            if (!n) continue;
+            let baseX = 0, baseY = 0;
+            if (n.x !== undefined) { baseX = n.x; baseY = n.y; }
+            else {
+                const days0 = (simulatedTime - EPOCH_MS) / DAY_MS;
+                const a0 = ((n.epoch || 0) + (days0 / (n.period || 365)) * 360) * Math.PI / 180;
+                baseX = Math.cos(a0) * (n.radius || 200);
+                baseY = Math.sin(a0) * (n.radius || 200);
+            }
+            const ang = it.phase + (simulatedTime / 1000 / 2400) * Math.PI * 2 * it.speed;
+            // радиус платформы жёстко ограничен: иначе она уезжает «в пустоту»
+            const pr = Math.min(34, Math.max(12, it.radius || 20));
+            const px0 = baseX + Math.cos(ang) * pr;
+            const py0 = baseY + Math.sin(ang) * pr;
+            if (!scenePublish(civilId(it), it.el, { x: px0, y: py0, ang: ang * 180 / Math.PI + 90 })) {
+                legacyPose(it.el, px0, py0, ang * 180 / Math.PI + 90);
+            }
+            continue;
+        }
+        if (it.kind === 'lunar') {
+            const n = planetNodes[it.planetIndex];
+            if (!n) continue;
+            let baseX = 0, baseY = 0;
+            if (n.x !== undefined) { baseX = n.x; baseY = n.y; }
+            else {
+                const days0 = (simulatedTime - EPOCH_MS) / DAY_MS;
+                const a0 = ((n.epoch || 0) + (days0 / (n.period || 365)) * 360) * Math.PI / 180;
+                baseX = Math.cos(a0) * (n.radius || 200);
+                baseY = Math.sin(a0) * (n.radius || 200);
+            }
+            // позиция луны
+            let mx = 0, my = 0;
+            const mn = moonNodes.find(m => {
+                const el2 = m.moon;
+                const nm = el2 && (el2.getAttribute('data-moon') || (el2.textContent || '').trim());
+                return nm && nm.indexOf(it.moonName) >= 0;
+            });
+            if (mn) {
+                const days = (simulatedTime - EPOCH_MS) / DAY_MS;
+                const a1 = ((mn.epoch || 0) + (days / (mn.period || 27)) * 360) * Math.PI / 180;
+                mx = Math.cos(a1) * (mn.radius || 30);
+                my = Math.sin(a1) * (mn.radius || 30);
+            }
+            // пинг-понг: 0 — планета, 1 — луна
+            const tt = (simulatedTime / 1000 / 900 * it.speed + it.phase) % 2;
+            let f = tt < 1 ? tt : 2 - tt;
+            // не заходить в диск луны и планеты: 15% пути — стоянка на орбите
+            f = 0.15 + f * 0.70;
+            cx = baseX + (baseX + mx - baseX) * f;
+            cy = baseY + (baseY + my - baseY) * f;
+            const dirAngle = Math.atan2(my, mx) * 180 / Math.PI + (tt < 1 ? 90 : -90);
+            if (!scenePublish(civilId(it), it.el, { x: cx, y: cy, ang: dirAngle })) {
+                legacyPose(it.el, cx, cy, dirAngle);
+            }
+            continue;
+        }
+        if (it.kind === 'pirate') {
+            // Законченный цикл пирата: набег (грабёж) -> домой с добычей -> пир.
+            // Цикл: набег -> домой с добычей -> пир (выставляет лот на рынок)
+            // -> доставка проданного лота покупателю.
+            const RAID = 700, HOME = 380, FEAST = 260, DELIVER = 420;
+            const CYCLE = RAID + HOME + FEAST + DELIVER;
+            const tm = ((simulatedTime / 1000) + (it.phase || 0) * 500) % CYCLE;
+            const LOOT = ['артефакт «Клинок Ро»', 'контейнер чипов', 'ящик редкозёма', 'капсула с данными'];
+            const cycleNo = Math.floor(((simulatedTime / 1000) + (it.phase || 0) * 500) / CYCLE);
+            const base = planetPoint('jupiter');
+            if (!base) continue;
+            const d = Math.hypot(base.x, base.y) || 1;
+            const homeP = { x: base.x + (base.x / d) * 26, y: base.y + (base.y / d) * 26 };
+            const targets = ['earth', 'mars', 'saturn'];
+            const victim = planetPoint(targets[(it.idx || 0) % targets.length]);
+            let px = homeP.x, py = homeP.y, heading = 0, carrying = false, feast = false, delivering = false;
+            if (victim && tm < RAID) {
+                // набег: крадётся у жертвы по малой орбите
+                const a = (simulatedTime / 1000 / 300 + (it.phase || 0)) * Math.PI * 2;
+                const r = 22 + (it.idx || 0) * 4;
+                px = victim.x + Math.cos(a) * r;
+                py = victim.y + Math.sin(a) * r;
+                heading = a * 180 / Math.PI + 90;
+            } else if (tm < RAID + HOME) {
+                // домой с добычей: линия маршрута видна
+                carrying = true;
+                const k = Math.min(1, (tm - RAID) / HOME);
+                const e = k * k * (3 - 2 * k);
+                const from = victim || homeP;
+                px = from.x + (homeP.x - from.x) * e;
+                py = from.y + (homeP.y - from.y) * e;
+                heading = Math.atan2(homeP.y - from.y, homeP.x - from.x) * 180 / Math.PI + 90;
+            } else if (tm < RAID + HOME + FEAST) {
+                // ПИР: пират выставляет награбленное на рынок
+                feast = true;
+                if (it.listedCycle !== cycleNo) {
+                    it.listedCycle = cycleNo;
+                    it.loot = LOOT[(cycleNo + (it.idx || 0)) % LOOT.length];
+                    it.listed = true;
+                    it.sold = ((cycleNo + (it.idx || 0)) % 2) === 0;   // половина лотов уходит
+                    if (typeof notify === 'function') {
+                        notify('🏴‍☠️ Пират выставил на рынок: ' + it.loot);
+                    }
+                    if (it.sold && typeof notify === 'function') {
+                        setTimeout(function () {
+                            notify('📦 Лот пирата куплен: ' + it.loot + ' — идёт доставка');
+                        }, 400);
+                    }
+                }
+            } else {
+                // ДОСТАВКА проданного лота: от базы пирата к покупателю
+                delivering = true;
+                const buyerId = (it.idx || 0) % 2 === 0 ? 'earth' : 'mars';
+                const buyer = planetPoint(buyerId);
+                if (buyer) {
+                    const k = Math.min(1, (tm - RAID - HOME - FEAST) / DELIVER);
+                    const e = k * k * (3 - 2 * k);
+                    px = homeP.x + (buyer.x - homeP.x) * e;
+                    py = homeP.y + (buyer.y - homeP.y) * e;
+                    heading = Math.atan2(buyer.y - homeP.y, buyer.x - homeP.x) * 180 / Math.PI + 90;
+                    it.deliverTo = buyerId;
+                }
+            }
+            if (!it.routeEl) {
+                if (!window.__pirateSvg) {
+                    const scene = document.querySelector('.solar-system');
+                    if (scene) {
+                        window.__pirateSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                        window.__pirateSvg.setAttribute('class', 'pirate-routes');
+                        window.__pirateSvg.setAttribute('width', '1');
+                        window.__pirateSvg.setAttribute('height', '1');
+                        window.__pirateSvg.setAttribute('overflow', 'visible');
+                        window.__pirateSvg.style.cssText = 'position:absolute;left:0;top:0;overflow:visible;pointer-events:none;z-index:1;';
+                        scene.appendChild(window.__pirateSvg);
+                    }
+                }
+                if (window.__pirateSvg) {
+                    it.routeEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    it.routeEl.setAttribute('class', 'pirate-route');
+                    it.routeEl.setAttribute('fill', 'none');
+                    it.routeEl.setAttribute('stroke', 'rgba(255, 120, 120, 0.55)');
+                    it.routeEl.setAttribute('stroke-width', '1');
+                    it.routeEl.setAttribute('stroke-dasharray', '3 6');
+                    window.__pirateSvg.appendChild(it.routeEl);
+                }
+            }
+            if (it.routeEl) {
+                if (carrying && victim) {
+                    it.routeEl.style.display = '';
+                    it.routeEl.setAttribute('d', 'M' + victim.x.toFixed(1) + ' ' + victim.y.toFixed(1) +
+                        ' L' + homeP.x.toFixed(1) + ' ' + homeP.y.toFixed(1));
+                    it.routeEl.setAttribute('stroke', 'rgba(255, 120, 120, 0.55)');
+                } else if (delivering) {
+                    const buyer = planetPoint(it.deliverTo || 'earth');
+                    if (buyer) {
+                        it.routeEl.style.display = '';
+                        it.routeEl.setAttribute('d', 'M' + homeP.x.toFixed(1) + ' ' + homeP.y.toFixed(1) +
+                            ' L' + buyer.x.toFixed(1) + ' ' + buyer.y.toFixed(1));
+                        it.routeEl.setAttribute('stroke', 'rgba(255, 209, 102, 0.7)');
+                    }
+                } else {
+                    it.routeEl.style.display = 'none';
+                }
+            }
+            if (!scenePublish(civilId(it), it.el, { x: px, y: py, ang: heading })) {
+                legacyPose(it.el, px, py, heading);
+            }
+            it.el.dataset.carrying = carrying ? '1' : '0';
+            it.el.dataset.feast = feast ? '1' : '0';
+            it.el.dataset.delivering = delivering ? '1' : '0';
+            if (it.loot) it.el.dataset.loot = it.loot;
+            it.el.title = 'пират' + (it.loot ? ' · ' + it.loot : '') +
+                (delivering ? ' · доставка на ' + (it.deliverTo || '') : '');
+            continue;
+        }
+        if (it.kind === 'belt') {
+            // Цикл: добыча на поясе -> рейс с грузом к планете -> разгрузка -> обратно.
+            // Линия маршрута появляется ТОЛЬКО когда борт везёт ресурс.
+            const MINE = 800;
+            // Рейс не быстрее 1 px за 45 игровых секунд: FLY считается от расстояния,
+            // иначе борт пролетал ~270 px за 420 с (29 px/45с) — пояс «летал» в 30 раз быстрее.
+            const dest0 = it.destId || 'earth';
+            const P0 = planetPoint(dest0);
+            const beltP0 = { x: Math.cos((simulatedTime / 1000 / (it.beltPeriod || 60000) + (it.phase || 0)) * Math.PI * 2) * it.radius,
+                             y: Math.sin((simulatedTime / 1000 / (it.beltPeriod || 60000) + (it.phase || 0)) * Math.PI * 2) * it.radius };
+            const distPx0 = P0 ? Math.hypot(P0.x - beltP0.x, P0.y - beltP0.y) : 0;
+            // ФИЗИКА: время рейса = кинематика грузового класса
+            const beltKm = distPx0 * 808649;
+            const FLY = (window.Motion && window.Motion.kinSec)
+                ? Math.max(60, Math.round(window.Motion.kinSec(beltKm, 'hauler')))
+                : Math.max(420, Math.round(distPx0 * 45 / 60) * 60);
+            const CYCLE = MINE + FLY + 600;
+            const tm = ((simulatedTime / 1000) + (it.phase || 0) * 300) % CYCLE;
+            // период обхода пояса — из правила «не быстрее 1 px за 45 с»:
+            // 2πR / (1/45) = 2πR·45 секунд. Было 2400 с → 2,14 c.
+            const beltPeriod = Math.max(2400, 2 * Math.PI * Math.abs(it.radius || 200) * 45);
+            const a = (simulatedTime / 1000 / beltPeriod + (it.phase || 0)) * Math.PI * 2;
+            const beltP = { x: Math.cos(a) * it.radius, y: Math.sin(a) * it.radius };
+            const destId = it.destId || (it.targetId = it.targetId || (Math.random() < 0.5 ? 'earth' : 'mars'));
+            const P = planetPoint(destId);
+            let bx = beltP.x, by = beltP.y, heading = 0, carrying = false, unloading = false;
+            if (P && tm >= MINE && tm < MINE + FLY) {
+                carrying = true;
+                const k = Math.min(1, (tm - MINE) / FLY);
+                const e = k * k * (3 - 2 * k);
+                const tx = P.x - (P.x / (Math.hypot(P.x, P.y) || 1)) * 12;
+                const ty = P.y - (P.y / (Math.hypot(P.x, P.y) || 1)) * 12;
+                bx = beltP.x + (tx - beltP.x) * e;
+                by = beltP.y + (ty - beltP.y) * e;
+                heading = Math.atan2(ty - beltP.y, tx - beltP.x) * 180 / Math.PI + 90;
+            } else if (P && tm >= MINE + FLY) {
+                // разгрузка у планеты: линия уже не нужна
+                unloading = true;
+                const d = Math.hypot(P.x, P.y) || 1;
+                bx = P.x - (P.x / d) * 12;
+                by = P.y - (P.y / d) * 12;
+            }
+            // путь
+            if (!it.routeSvg) {
+                const scene = document.querySelector('.solar-system');
+                if (scene && !window.__beltRouteSvg) {
+                    window.__beltRouteSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    window.__beltRouteSvg.setAttribute('class', 'belt-routes');
+                    window.__beltRouteSvg.setAttribute('width', '1');
+                    window.__beltRouteSvg.setAttribute('height', '1');
+                    window.__beltRouteSvg.setAttribute('overflow', 'visible');
+                    window.__beltRouteSvg.style.cssText = 'position:absolute;left:0;top:0;overflow:visible;pointer-events:none;z-index:1;';
+                    scene.appendChild(window.__beltRouteSvg);
+                }
+                it.routeSvg = window.__beltRouteSvg || null;
+                if (it.routeSvg) {
+                    it.routeEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    it.routeEl.setAttribute('class', 'belt-route');
+                    it.routeEl.setAttribute('fill', 'none');
+                    it.routeEl.setAttribute('stroke', 'rgba(255, 209, 102, 0.5)');
+                    it.routeEl.setAttribute('stroke-width', '1');
+                    it.routeEl.setAttribute('stroke-dasharray', '4 6');
+                    it.routeSvg.appendChild(it.routeEl);
+                }
+            }
+            if (it.routeEl) {
+                if (carrying && P) {
+                    it.routeEl.style.display = '';
+                    it.routeEl.setAttribute('d', 'M' + beltP.x.toFixed(1) + ' ' + beltP.y.toFixed(1) +
+                        ' L' + P.x.toFixed(1) + ' ' + P.y.toFixed(1));
+                } else {
+                    it.routeEl.style.display = 'none';
+                }
+            }
+            if (!scenePublish(civilId(it), it.el, { x: bx, y: by, ang: heading })) {
+                legacyPose(it.el, bx, by, heading);
+            }
+            it.el.dataset.carrying = carrying ? '1' : '0';
+            it.el.dataset.unloading = unloading ? '1' : '0';
+            continue;
+        }
+        if (it.kind === 'gas') {
+            const n = planetNodes[it.planetIndex];
+            if (!n) continue;
+            // позиция планеты
+            let baseX = 0, baseY = 0;
+            if (n.x !== undefined) { baseX = n.x; baseY = n.y; }
+            else {
+                const days0 = (simulatedTime - EPOCH_MS) / DAY_MS;
+                const a0 = ((n.epoch || 0) + (days0 / (n.period || 365)) * 360) * Math.PI / 180;
+                baseX = Math.cos(a0) * (n.radius || 200);
+                baseY = Math.sin(a0) * (n.radius || 200);
+            }
+            // позиция луны относительно планеты — из её орбиты
+            const mn = moonNodes.filter(m => {
+                const el = m.moon;
+                const nm = el && (el.getAttribute('data-moon') || (el.textContent || '').trim());
+                return nm && it.moonName && nm.indexOf(it.moonName.split(' ')[0]) >= 0;
+            }).find(m => {
+                const host = m.moon && m.moon.closest && m.moon.closest('.planet');
+                return !host || !n.planet || host === n.planet;
+            });
+            let mx = 0, my = 0;
+            if (mn) {
+                const days = (simulatedTime - EPOCH_MS) / DAY_MS;
+                const a1 = ((mn.epoch || 0) + (days / (mn.period || 27)) * 360) * Math.PI / 180;
+                mx = Math.cos(a1) * (mn.radius || 30);
+                my = Math.sin(a1) * (mn.radius || 30);
+            }
+            cx = baseX + mx; cy = baseY + my;
+        } else if (it.kind === 'colony') {
+            const n = planetNodes[it.planetIndex];
+            if (!n) continue;
+            if (n.x !== undefined) {
+                cx = n.x; cy = n.y;
+            } else {
+                // углы ещё не посчитаны — берём угол из периода планеты
+                const days = (simulatedTime - EPOCH_MS) / DAY_MS;
+                const a0 = ((n.epoch || 0) + (days / (n.period || 365)) * 360) * Math.PI / 180;
+                cx = Math.cos(a0) * (n.radius || 200);
+                cy = Math.sin(a0) * (n.radius || 200);
+            }
+        }
+        const ang = it.phase + (t / CIVIL_PERIOD_GAME_S) * Math.PI * 2 * it.speed;
+        const px = cx + Math.cos(ang) * it.radius;
+        const py = cy + Math.sin(ang) * it.radius;
+        const heading = ang * 180 / Math.PI + 90;
+        // страховка: гражданские борта тоже не должны «улетать» за систему
+        if (Math.hypot(px, py) > maxOrbitRadius * 1.05) {
+            it.el.style.display = 'none';
+        } else {
+            it.el.style.display = '';
+        }
+        if (!scenePublish(civilId(it), it.el, { x: px, y: py, ang: heading })) {
+            legacyPose(it.el, px, py, heading);
+        }
+        // видимость — отдельное правило, одинаковое для обоих слоёв
+        it.el.style.display = (Math.hypot(px, py) > maxOrbitRadius * 1.05) ? 'none' : '';
+    }
+}
+
 function buildFleetDots() {
     if (fleetLayer) return;
     const host = document.querySelector('.solar-system') || document.querySelector('.system-view') || document.body;
@@ -5232,15 +8483,108 @@ function buildFleetDots() {
     host.appendChild(fleetLayer);
 }
 
+// Легенда: кто из треугольников кто и сколько их.
+let fleetRouteLayer = null;
+function buildFleetRouteLayer() {
+    const host = document.querySelector('.solar-system') || document.querySelector('.system-view');
+    if (!host || !fleetsModule) return;
+    const R = maxOrbitRadius;
+    const routes = fleetsModule.routeLines();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'fleet-routes');
+    svg.setAttribute('width', String(R * 2.4));
+    svg.setAttribute('height', String(R * 2.4));
+    svg.setAttribute('viewBox', `${-R * 1.2} ${-R * 1.2} ${R * 2.4} ${R * 2.4}`);
+    svg.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:1';
+    routes.forEach(r => {
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const d = r.pts.map((pt, i) => {
+            const x = (pt[0] - 0.5) * 2 * R;
+            const y = (pt[1] - 0.5) * 2 * R;
+            return (i === 0 ? 'M ' : 'L ') + x.toFixed(1) + ' ' + y.toFixed(1);
+        }).join(' ');
+        path.setAttribute('d', d);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', 'rgba(127,227,255,0.16)');
+        path.setAttribute('stroke-width', '1');
+        path.setAttribute('stroke-dasharray', '3 7');
+        svg.appendChild(path);
+    });
+    host.appendChild(svg);
+    fleetRouteLayer = svg;
+}
+
+function ensureFleetLegend() {
+    let box = document.getElementById('fleet-legend');
+    if (box) return box;
+    const host = document.querySelector('.control-panel') || document.body;
+    box = document.createElement('div');
+    box.id = 'fleet-legend';
+    box.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:9000;padding:8px 10px;' +
+        'background:rgba(8,14,24,.88);border:1px solid #1e3a5f;border-radius:10px;' +
+        'color:#dce8f7;font:12px Inter,system-ui,sans-serif;line-height:1.5;pointer-events:none';
+    host.appendChild(box);
+    return box;
+}
+
+// Карточка борта по клику: те же данные, что в подсказке, но крупно и с фазами.
+function openFleetCard(d) {
+    const old = document.getElementById('fleet-card');
+    if (old) old.remove();
+    const card = document.createElement('div');
+    card.id = 'fleet-card';
+    card.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:12500;width:300px;padding:14px 16px;' +
+        'background:rgba(9,16,26,.97);border:1px solid #2b4a6e;border-radius:14px;color:#dce8f7;' +
+        'font:13px/1.5 Inter,system-ui,sans-serif;box-shadow:0 10px 30px #000a';
+    const hours = d.hours || 0;
+    const eta = hours >= 24 ? (hours / 24).toFixed(1) + ' сут' : hours.toFixed(1) + ' ч';
+    const ph = d.phases || {};
+    const fmt = (sec) => sec >= 3600 ? (sec / 3600).toFixed(1) + ' ч' : Math.round(sec / 60) + ' мин';
+    card.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<b style="color:' + (d.color || '#7fe3a8') + ';font-size:15px">' + (d.kind || 'борт') + '</b>' +
+        '<button id="fc-close" style="border:none;border-radius:7px;padding:3px 9px;background:#2b3238;color:#e6eaed;cursor:pointer">✕</button></div>' +
+        '<div style="opacity:.8;margin-top:6px">' + (d.label || '') + '</div>' +
+        '<div style="margin-top:8px;font-size:12.5px;opacity:.85">' +
+        '<div>расстояние: <b>' + ((d.distKm || 0) / 1e6).toFixed(0) + ' млн км</b></div>' +
+        '<div>время рейса: <b>' + eta + '</b>' + (d.fuel ? ' · топливо <b>' + d.fuel + ' т</b>' : '') + '</div>' +
+        (ph.accel ? '<div>фазы: разгон ' + fmt(ph.accel) + ' · марш ' + fmt(ph.coast) + ' · торможение ' + fmt(ph.brake) + '</div>' : '') +
+        (d.inBattle ? '<div style="color:#ffd479">идёт бой</div>' : '') +
+        '</div>';
+    document.body.appendChild(card);
+    document.getElementById('fc-close').onclick = () => card.remove();
+}
+
+// Всплывающая подсказка: нативный title появляется через секунду и без деталей.
+function ensureFleetTip() {
+    let tip = document.getElementById('fleet-tip');
+    if (tip) return tip;
+    tip = document.createElement('div');
+    tip.id = 'fleet-tip';
+    tip.style.cssText = 'position:fixed;z-index:12000;display:none;max-width:280px;padding:8px 10px;' +
+        'background:rgba(8,14,24,.96);border:1px solid #2b4a6e;border-radius:9px;color:#dce8f7;' +
+        'font:12px Inter,system-ui,sans-serif;pointer-events:none;box-shadow:0 6px 18px #0008';
+    document.body.appendChild(tip);
+    return tip;
+}
+
 function updateFleetDots() {
+    // Старые маркеры флотов рисовались в нормализованных координатах и висели
+    // вне системы. Теперь торговцев ведёт updateTradeTraffic по планетам.
+    document.querySelectorAll('#fleet-dots .ship-marker').forEach(el => el.remove());
+    return;
+    // eslint-disable-next-line no-unreachable
     if (!fleetsModule) {
-        import('/js/fleets.js').then(m => { fleetsModule = m; m.init(); buildFleetDots(); }).catch(e => console.warn('fleets:', e));
+        import('/js/fleets.js?v=12').then(m => { fleetsModule = m; m.init(); buildFleetDots(); }).catch(e => console.warn('fleets:', e));
         return;
     }
     if (!fleetLayer) buildFleetDots();
     if (!fleetLayer) return;
 
-    const pos = fleetsModule.positions(Date.now(), Math.max(1, timeScale || 1));
+    // Позиция бортов считается от ИГРОВОГО времени: simulatedTime уже идёт
+    // с множителем timeScale, поэтому второй раз масштаб не применяем.
+    // Рейс длится столько, сколько нужно физике: путь / скорость борта.
+    const pos = fleetsModule.positions(simulatedTime, 1);
     const W = fleetLayer.clientWidth || window.innerWidth;
     const H = fleetLayer.clientHeight || window.innerHeight;
     const cx = W * 0.5, cy = H * 0.52;
@@ -5248,42 +8592,208 @@ function updateFleetDots() {
 
     while (fleetDots.length < pos.length) {
         const el = document.createElement('div');
-        el.className = 'fleet-dot';
+        el.className = 'ship-marker';
         fleetLayer.appendChild(el);
         fleetDots.push(el);
     }
+    const legend = ensureFleetLegend();
+    if (legend) {
+        let trade = 0, pirate = 0, battle = 0;
+        for (let k = 0; k < pos.length; k++) {
+            const q = pos[k];
+            if (!q || !q.inFlight) continue;
+            if (q.side === 'pirate') pirate++; else trade++;
+            if (q.inBattle) battle++;
+        }
+        legend.innerHTML = '<b style="color:#8fd6ff">Флот на карте</b><br>' +
+            '<span style="color:#9fb2c6">▲</span> всего бортов: <b>' + (trade + pirate) + '</b><br>' +
+            '<span style="opacity:.75">торговцы ' + trade + ' · пираты ' + pirate +
+            (battle ? ' · в бою ' + battle : '') + '</span><br>' +
+            '<span style="opacity:.6">наведите на маркер — тип, маршрут и время</span>';
+    }
+
+    
+// Карточка одного борта: мини-панель у правого края, закрывается кликом/Esc.
+// Показывает то, что на маркере: тип, маршрут, скорость, время в пути.
+
+// КЛИК ПО БОРТУ: маркеры флота размером 2 px, попасть в них мышью нельзя,
+// а соседние модули на этом клике открывают общее окно «Космический флот».
+// Поэтому ловим клик по слою и берём БЛИЖАЙШИЙ маркер в радиусе 16 px.
+(function () {
+    if (window.__fleetClickBound) return;
+    window.__fleetClickBound = true;
+    document.addEventListener('click', function (ev) {
+        var layer = ev.target && ev.target.closest ? ev.target.closest('.fleet-layer, #fleet-traffic, #civil-traffic') : null;
+        var markers = document.querySelectorAll('.ship-marker--fleet');
+        var best = null, bestD = 1e9;
+        var pts = [];
+        markers.forEach(function (m) {
+            var r = m.getBoundingClientRect();
+            var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+            var d = Math.hypot(ev.clientX - cx, ev.clientY - cy);
+            pts.push({ d: d, el: m });
+            if (d < bestD) { bestD = d; best = m; }
+        });
+        window.__lastFleetHit = { x: ev.clientX, y: ev.clientY, nearest: bestD, hasLayer: !!layer, count: markers.length };
+        if (!best || bestD > 16) return;
+        ev.stopPropagation();
+        ev.preventDefault();
+        showShipCard(best._fleet || { label: best.title || 'борт' });
+    }, true);
+})();
+
+function showShipCard(f) {
+    if (!f) return;
+    let card = document.getElementById('ship-card');
+    if (!card) {
+        card = document.createElement('div');
+        card.id = 'ship-card';
+        card.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:100006;max-width:320px;' +
+            'padding:12px 14px;border-radius:12px;background:rgba(10,16,26,.96);' +
+            'border:1px solid rgba(143,214,255,.35);color:#e8eef8;font:13px/1.5 system-ui,sans-serif;' +
+            'box-shadow:0 12px 30px rgba(0,0,0,.5)';
+        document.body.appendChild(card);
+        document.addEventListener('keydown', function (e) {
+            if (e.code === 'Escape') { var c = document.getElementById('ship-card'); if (c) c.remove(); }
+        });
+    }
+    var title = f.label || f.kind || 'борт';
+    var rows = [];
+    if (f.kind) rows.push('тип: ' + f.kind);
+    if (f.hours) rows.push('в пути: ' + Number(f.hours).toFixed(1) + ' ч');
+    if (f.distKm) rows.push('дистанция: ' + Math.round(f.distKm).toLocaleString('ru-RU') + ' км');
+    if (f.art) rows.push('класс: ' + f.art);
+    card.innerHTML = '<button id="ship-card-close" style="float:right;background:none;border:0;color:#9fb2c6;' +
+        'font-size:16px;cursor:pointer">×</button>' +
+        '<div style="color:#8fd6ff;font-weight:700;font-size:14px">' + title + '</div>' +
+        '<div style="opacity:.85;font-size:12px;margin-top:6px">' + rows.join('<br>') + '</div>';
+    var b = card.querySelector('#ship-card-close');
+    if (b) b.onclick = function () { card.remove(); };
+    document.title = 'SHIP ' + title;
+}
+
+// тонкие линии маршрутов: борт видно на своей трассе, а не «в пустоте»
+    if (fleetsModule && typeof fleetsModule.routeLines === 'function' && !fleetRouteLayer) {
+        buildFleetRouteLayer();
+    }
+
     for (let i = 0; i < fleetDots.length; i++) {
         const el = fleetDots[i];
         const s = pos[i];
         if (!s) { el.style.display = 'none'; continue; }
         el.style.display = s.inFlight ? 'block' : 'none';
-        el.style.left = (cx + (s.x - 0.5) * 2 * R) + 'px';
-        el.style.top = (cy + (s.y - 0.5) * 2 * R) + 'px';
-        el.style.borderBottomColor = s.color;
+
+        const px = cx + (s.x - 0.5) * 2 * R;
+        const py = cy + (s.y - 0.5) * 2 * R;
+
+        // курс: треугольник должен смотреть туда, куда летит борт, а не вверх
+        const prevX = parseFloat(el.dataset.px || px);
+        const prevY = parseFloat(el.dataset.py || py);
+        let heading = parseFloat(el.dataset.hdg || 0);
+        const dx = px - prevX, dy = py - prevY;
+        if (Math.hypot(dx, dy) > 0.3) {
+            // треугольник нарисован «носом вверх» → +90°
+            heading = Math.atan2(dy, dx) * 180 / Math.PI + 90;
+            // курс меняется плавно, иначе борт «дёргается» на разворотах
+            const prevH = parseFloat(el.dataset.hdg || heading);
+            let delta = ((heading - prevH + 540) % 360) - 180;
+            heading = prevH + delta * 0.35;
+            el.dataset.hdg = heading;
+        }
+        // подсказка и данные для карточки
+        el._fleet = s;
+        // ЯВНАЯ ПРИВЯЗКА К БОРТУ: без неё клик открывал «какой-то» борт
+        // (наложение маркеров) и карточку нельзя было проверить по id
+        if (s && s.id) el.dataset.ship = s.id;
+        if (!el._tipBound) {
+            el._tipBound = true;
+            el.addEventListener('pointerenter', function (ev) {
+                const tip = ensureFleetTip();
+                const d = el._fleet || {};
+                const hours = d.hours || 0;
+                const eta = hours >= 24 ? (hours / 24).toFixed(0) + ' сут' : hours.toFixed(1) + ' ч';
+                tip.innerHTML = '<b style="color:' + (d.color || '#7fe3a8') + '">' +
+                    (d.kind || 'борт') + '</b><br>' +
+                    '<span style="opacity:.8">' + (d.label || '') + '</span><br>' +
+                    '<span style="opacity:.65">в пути: ' + eta + (d.inBattle ? ' · бой' : '') + '</span>';
+                tip.style.display = 'block';
+            });
+            el.addEventListener('pointermove', function (ev) {
+                const tip = ensureFleetTip();
+                tip.style.left = Math.min(window.innerWidth - 300, ev.clientX + 14) + 'px';
+                tip.style.top = Math.max(8, ev.clientY - 70) + 'px';
+            });
+            el.addEventListener('click', function () {
+                if (el._fleet) openFleetCard(el._fleet);
+            });
+            el.addEventListener('pointerleave', function () {
+                const tip = document.getElementById('fleet-tip');
+                if (tip) tip.style.display = 'none';
+            });
+        }
+
+        el.dataset.px = px;
+        el.dataset.py = py;
+
+        const sid2 = el.dataset.sid || ('entity-' + px + '-' + py);
+        if (!scenePublish(sid2, el, { x: px, y: py, ang: heading })) {
+            legacyPose(el, px, py, heading);
+        }
+        // спрайт корабля: у каждого борта своя модель, как в каталоге
+        // Текстура корабля из каталога: класс подобран по длине маршрута.
+        // Нос спрайта смотрит вверх, поэтому курс = atan2 + 90°.
+        const art = s.art || 'jet_scout';
+        if (el.dataset.art !== art) {
+            el.dataset.art = art;
+            el.style.backgroundImage = 'url(' + shipArtUrl(art) + ')';
+        }
+        // цвет не меняем: все борта выглядят одинаково, роль — в подсказке
         el.dataset.side = s.side;
-        el.title = s.kind;
+        el.title = s.label || s.kind;
     }
 }
+
+let logicAccum = 0;   // накопитель времени для «медленной» логики
 
 function animate() {
     const now = performance.now();
     let realDelta = now - lastRealTime;
     lastRealTime = now;
     if (realDelta > 250) realDelta = 250;   // вкладка была свёрнута — не прыгаем на часы вперёд
-    if (!document.hidden) simulatedTime += realDelta * timeScale;
+    if (window.Motion) window.Motion.setScale(timeScale || 1);
+    // РЕЖИМ КАДРА: время жёстко фиксировано, иначе любой кадр «уезжает»
+    // и сравнивать скриншоты бессмысленно (проверено: расхождение 200 px).
+    if (window.__freezeAt) {
+        simulatedTime = window.__freezeAt;
+        realDelta = 0;              // тики не должны копить время в тестовом кадре
+    } else if (!document.hidden) {
+        simulatedTime += realDelta * timeScale;
+    }
 
     if (solarVisible) {
         const currentDays = (simulatedTime - EPOCH_MS) / DAY_MS;
+        // Каждый кадр: только то, что двигается на экране.
         calculateAngles(currentDays);
         updateTraffic(realDelta);
         updateFleetDots();
-        tickFactories(realDelta);
-        tickBuilds();
-        tickPrices(realDelta);
-        tickTrips();
-        tickCombat(realDelta);
-        tickPirateEconomy(realDelta);
-        checkCoalition();
+        updateTradeTraffic(); updatePortalTraffic(); updateFleetTraffic(); updateFleetRoutes(); updateShipsUnified();
+        updateCivilTraffic();
+        updateElevators();
+        // Тяжёлая логика (стройка, цены, бои, экономика) — 4 раза в секунду:
+        // на глаз это незаметно, а кадры освобождаются.
+        logicAccum += realDelta;
+        const runLogic = logicAccum >= 250;
+        if (runLogic) {
+            const dt = logicAccum;
+            logicAccum = 0;
+            tickFactories(dt);
+            tickBuilds();
+            tickPrices(dt);
+            tickTrips();
+            tickCombat(dt);
+            tickPirateEconomy(dt);
+            checkCoalition();
+        }
         // население растёт по игровому времени: 30 суток = 1/12 года
         popYearAccum += realDelta * (typeof timeScale === 'number' ? timeScale : 1);
         while (popYearAccum >= 30 * 86400000 / 1000) {
@@ -5294,16 +8804,105 @@ function animate() {
             tickHiring();
             tickConsumption(30);
         }
-        tickNpcs(realDelta);
-        drawAsteroids(currentDays);
+        if (runLogic) {
+            tickNpcs(realDelta);
+            drawAsteroids(currentDays);
+        }
         updateSimClock(now);
+    }
+    // Замер производительности: ?perf=1 пишет средний FPS в заголовок
+    if (window.__perfOn === undefined) {
+        try { window.__perfOn = new URLSearchParams(location.search).has('perf'); } catch (e) { window.__perfOn = false; }
+    }
+    if (window.__perfOn) {
+        window.__perfFrames = (window.__perfFrames || 0) + 1;
+        window.__perfSum = (window.__perfSum || 0) + realDelta;
+        if (window.__perfFrames === 180) {
+            const avg = window.__perfSum / window.__perfFrames;
+            document.title = 'PERF fps=' + (1000 / avg).toFixed(1) + ' кадр=' + avg.toFixed(1) + 'мс';
+        }
     }
     perfTick(realDelta);
     requestAnimationFrame(animate);
 }
 
 // === ИНИЦИАЛИЗАЦИЯ ===
+// ── РЕЖИМ ТЕХНИЧЕСКИХ РАБОТ ──────────────────────────────────────────────
+// Пока картинка движения не отлажена, игроки не играют. Вход для отладки:
+//   ?dev=1  — открывает сцену (только для разработки)
+const MAINTENANCE = false;   // техработы завершены — игра открыта для всех
+// Проверка доступа: админ играет, остальные видят заглушку.
+function applyMaintenanceGate() {
+    if (!MAINTENANCE) return false;
+    const isAdmin = currentUser && currentUser.role === 'admin';
+    if (isAdmin) {
+        const m = document.getElementById('maintenance-screen');
+        if (m) m.remove();
+        const scene = document.querySelector('.solar-system');
+        if (scene) scene.style.display = '';
+        return false;
+    }
+    if (!document.getElementById('maintenance-screen')) showMaintenance();
+    return true;
+}
+
+function showMaintenance() {
+    const d = document.createElement('div');
+    d.id = 'maintenance-screen';
+    d.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;' +
+        'justify-content:center;flex-direction:column;gap:14px;background:#05080f;' +
+        'color:#cfe3ff;font-family:inherit;text-align:center;padding:32px';
+    d.innerHTML = '<div style="font-size:22px;font-weight:600">Идут технические работы</div>' +
+        '<div style="max-width:520px;line-height:1.5;color:#8fb4d8">Отлаживаем движение объектов на карте. ' +
+        'Игра вернётся, как только картинка будет соответствовать физике.</div>' +
+        '<div style="font-size:12px;color:#55708f">Спасибо за терпение</div>';
+    document.body.appendChild(d);
+    return d;
+}
+
+// СБРОС КЭША БЕЗ РУЧНЫХ ДЕЙСТВИЙ.
+// Номер сборки хранится в localStorage: после деплоя страница один раз
+// перезагружается сама — как будто закрыли и открыли браузер.
+const APP_BUILD = (document.querySelector('meta[name="app-build"]') || {}).content || '';
+if (APP_BUILD) {
+    try {
+        const prev = localStorage.getItem('galaktika_build');
+        if (prev && prev !== APP_BUILD && !sessionStorage.getItem('galaktika_reloaded_' + APP_BUILD)) {
+            sessionStorage.setItem('galaktika_reloaded_' + APP_BUILD, '1');
+            localStorage.setItem('galaktika_build', APP_BUILD);
+            location.reload();
+        } else {
+            localStorage.setItem('galaktika_build', APP_BUILD);
+        }
+    } catch (e) { }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    // ── Тестовый кадр: ставим заморозку ПЕРВОЙ строкой инициализации,
+    //    иначе часть систем успевает прожить секунды и кадр уезжает.
+    (function applyFreeze() {
+        const fz = new URLSearchParams(location.search).get('freeze');
+        if (fz === null || fz === '') return;
+        const f = parseFloat(fz);
+        if (!isFinite(f)) return;
+        const base = (window.Motion && Motion.TABLES.time.epochMs) || EPOCH_MS;
+        const rawOff = (typeof GAME_OFFSET_MS === 'number') ? GAME_OFFSET_MS : 0;
+        window.__freezeAt = base + Math.floor(rawOff / 86400000) * 86400000 + f * 1000;
+        simulatedTime = window.__freezeAt;
+        timeScale = 0;
+        if (window.Motion) window.Motion.setTime(window.__freezeAt);
+    })();
+
+    // техработы решаются по роли ниже, после загрузки профиля
+    // ?zoom=1.6 — тестовый масштаб (для скриншотов и слайдшоу)
+    (function applyZoomParam() {
+        const z = new URLSearchParams(location.search).get('zoom');
+        if (z === null) return;
+        const v = parseFloat(z);
+        if (!isFinite(v) || v <= 0) return;
+        setTimeout(function () { if (typeof window.zoomAt === 'function') window.zoomAt(v, 0, 0); }, 1200);
+    })();
+
     initStars(); drawStars();
     sizeBeltCanvas();
     if (!beltReady) generateAsteroids();
@@ -5330,6 +8929,8 @@ document.addEventListener('DOMContentLoaded', () => {
             items.appendChild(eb);
             items.dataset.grouped = '0';
             regroupMenu();
+            hideAdminButtons();
+            hideDuplicateMenuButtons();
         }
     }, 1150);
     setTimeout(() => {
@@ -5342,13 +8943,535 @@ document.addEventListener('DOMContentLoaded', () => {
             // кнопка появилась после раскладки — раскладываем меню заново
             items.dataset.grouped = '0';
             regroupMenu();
+            hideAdminButtons();
+            hideDuplicateMenuButtons();
         }
     }, 1200);
     setTimeout(() => { if (urlParams.get('open') === 'flight') window.openFlight(); }, 1200);
+    // ?open=market|resources|build|fleet — открыть окно сразу (для скриншотов)
+    setTimeout(() => {
+        const which = urlParams.get('open');
+        try {
+            if (which === 'market' && typeof window.openMarket === 'function') window.openMarket();
+            else if (which === 'resources' && typeof window.openResourcesPanel === 'function') window.openResourcesPanel();
+            else if (which === 'build' && window.BuildPanel) window.BuildPanel.open();
+            else if (which === 'fleet' && typeof window.openFleet === 'function') { window.openFleet(); if (urlParams.get('ship') && typeof window.renderHangar === 'function') window.renderHangar(urlParams.get('ship')); }
+        } catch (e) { console.warn('open param:', e); }
+    }, 2000);
     buildViewPanel();
+    // убираем подпись Солнца из DOM: она рисовала тёмный прямоугольник
+    function removeSunTooltip() {
+        document.querySelectorAll('.sun .tooltip').forEach(t => t.remove());
+    }
+    removeSunTooltip();
+    setTimeout(removeSunTooltip, 500);
+    setTimeout(removeSunTooltip, 1500);
+    // Тестовый режим панорамирования: ?press=down:5 — пять нажатий «вниз»
+    (function applyPressParam() {
+        const spec = new URLSearchParams(location.search).get('press');
+        if (!spec) return;
+        const parts = spec.split(':');
+        const dir = parts[0], times = Math.max(1, Math.min(30, parseInt(parts[1] || '1', 10) || 1));
+        let n = 0;
+        const t = setInterval(() => {
+            if (typeof window.moveView === 'function') window.moveView(dir);
+            if (++n >= times) clearInterval(t);
+        }, 120);
+    })();
+
+    // Тест клика по планете: ?click=earth откроет планетарный вид
+    (function applyClickParam() {
+        const id = new URLSearchParams(location.search).get('click');
+        if (!id) return;
+        setTimeout(() => {
+            if (window.PlanetView && typeof window.PlanetView.open === 'function') {
+                try {
+                    window.PlanetView.open(id);
+                    setTimeout(() => {
+                        const cvs = document.querySelectorAll('canvas');
+                        const bar = document.getElementById('pv-bar');
+                        document.title = 'PV who=' + String(window.__pvClosedBy || '-').slice(0, 220).replace(/\n/g, ' | ') +
+                            ' err=' + (window.__pvErr || '-') + ' bars=' +
+                            document.querySelectorAll('#pv-bar').length + ' wrap=' +
+                            document.querySelectorAll('#blocks3d-wrap').length + ' step=' + (window.__pvStep || '?');
+                        window.__pvDiag = { step: window.__pvStep, err: window.__pvErr || '', bars: bar ? 1 : 0, canvases: cvs.length };
+                        /* второй title не нужен */ document.title = document.title || 'PV step=' + (window.__pvStep || '?') +
+                            ' blocks=' + (window.Blocks3D ? 'да' : 'нет') +
+                            ' canvases=' + cvs.length +
+                            ' bar=' + (bar ? (getComputedStyle(bar).display) : 'нет') +
+                            ' webgl=' + (function () {
+                                try { return document.createElement('canvas').getContext('webgl') ? 'да' : 'нет'; }
+                                catch (e) { return 'нет'; }
+                            })();
+                    }, 7000);
+                } catch (e) { console.error('PlanetView.open:', e); }
+            } else {
+                console.warn('PlanetView не загружен');
+            }
+        }, 2200);
+    })();
+
+    // ТЕСТ: ?dbl=earth — программно шлём двойной клик по планете и пишем итог в заголовок
+    (function testDbl() {
+        const id = new URLSearchParams(location.search).get('dbl');
+        if (!id) return;
+        setTimeout(() => {
+            const el = document.querySelector('.planet[data-planet-id="' + id + '"]');
+            if (!el) { document.title = 'DBL нет планеты ' + id; return; }
+            const r = el.getBoundingClientRect();
+            const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+            // два нажатия по центру планеты: проверяем роутер нового слоя
+            for (let i = 0; i < 2; i++) {
+                document.dispatchEvent(new PointerEvent('pointerdown', {
+                    bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0
+                }));
+            }
+            window.__pdX = cx; window.__pdY = cy;
+            el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+            setTimeout(() => {
+                const modal = document.getElementById('globe-modal');
+                document.title = 'DBL ' + id +
+                    ' modal=' + (modal ? (getComputedStyle(modal).display) : 'нет') +
+                    ' err=' + (window.__globeErr || '-') +
+                    ' openGlobe=' + (typeof window.openGlobe);
+            }, 2000);
+        }, 3000);
+    })();
+
+    // САМОПРОВЕРКА ДВИЖЕНИЯ: ?selftest2=1
+    // Меряет смещение маркеров ВНУТРИ одной сессии за 600 игровых секунд —
+    // без перезагрузок, поэтому фазы и случайные seed не мешают.
+    (function selfTest() {
+        if (!new URLSearchParams(location.search).has('selftest2')) return;
+        setTimeout(function () {
+            var els = Array.prototype.slice.call(document.querySelectorAll('.ship-marker[data-sid]'));
+            function snap() {
+                return els.map(function (e) {
+                    var m = (e.style.transform || '').match(/translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/);
+                    return m ? [parseFloat(m[1]), parseFloat(m[2])] : null;
+                });
+            }
+            var a = snap();
+            var t0 = simulatedTime;
+            window.__freezeAt = t0 + 600000;     // прыжок на 600 игровых секунд
+            setTimeout(function () {
+                var b = snap();
+                var kmPerPx = 149600000 / 185;
+                var maxPx = 0, fast = 0, cmp = 0;
+                for (var i = 0; i < a.length; i++) {
+                    if (!a[i] || !b[i]) continue;
+                    cmp++;
+                    var d = Math.hypot(b[i][0] - a[i][0], b[i][1] - a[i][1]);
+                    if (d > maxPx) maxPx = d;
+                    if (d * kmPerPx / 600 / 299792 > 0.25) fast++;
+                }
+                document.title = 'SELFTEST маркеров=' + cmp + ' макс=' + maxPx.toFixed(1) +
+                    'px быстрее0.25c=' + fast + ' t0=' + Math.round(t0 / 1000);
+            }, 900);
+        }, 5000);
+    })();
+
+    // ПРИЁМОЧНЫЙ ТЕСТ: ?smoke=1 — проверяет кликабельность объектов
+    // (планета -> глобус, корабль -> карточка) через роутер нового слоя.
+    // Тапы повторяются, пока сцена пересобирается: элементы могут быть нулевого размера.
+    (function smoke() {
+        if (!new URLSearchParams(location.search).has('smoke')) return;
+        var log = [];
+        ['openGlobe', 'openTrafficCard', 'openFleetCard', 'openShipFlight'].forEach(function (n) {
+            var orig = window[n];
+            if (typeof orig !== 'function') return;
+            window[n] = function () {
+                log.push(n + ':' + arguments[0]);
+                return orig.apply(this, arguments);
+            };
+        });
+
+        function tap(el, x, y) {
+            for (var i = 0; i < 2; i++) {
+                setTimeout(function () {
+                    document.dispatchEvent(new PointerEvent('pointerdown', {
+                        bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0
+                    }));
+                }, i * 180);
+            }
+        }
+
+        function centerOf(el) {
+            var r = el.getBoundingClientRect();
+            if (!r.width || !r.height) return null;
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }
+
+        var tries = 0;
+        var timer = setInterval(function () {
+            tries++;
+            if (log.length || tries > 45) {
+                clearInterval(timer);
+                document.title = 'SMOKE tries=' + tries + ' pd=' + (window.__pdCount || 0) + ' bridge=' +
+                    !!(window.SceneBridge && window.SceneBridge.on && window.SceneBridge.on()) +
+                    ' calls=[' + log.join(' ') + ']';
+                return;
+            }
+            var earth = document.querySelector('.planet[data-planet-id="earth"]');
+            var c = earth ? centerOf(earth) : null;
+            if (c) tap(earth, c.x, c.y);
+        }, 500);
+
+        // второй проход: корабль
+        setTimeout(function () {
+            var ship = document.querySelector('.trade-ship[data-sid]') ||
+                       document.querySelector('.ship-marker--fleet[data-sid]');
+            var c = ship ? centerOf(ship) : null;
+            if (c) tap(ship, c.x, c.y);
+        }, 14000);
+    })();
+
+    // ── КИНЕМАТОГРАФИЧНЫЙ НАЕЗД ────────────────────────────────────────────
+    // Двойной клик не открывает объект мгновенно: карта плавно наезжает,
+    // слегка доворачивается и только потом открывается глобус или карточка.
+    let camAnimId = null;
+    function stopCamAnim() {
+        if (camAnimId) { cancelAnimationFrame(camAnimId); camAnimId = null; }
+    }
+    function easeInOut(k) { return k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2; }
+
+    function cinematicZoom(target, ms, done) {
+        stopCamAnim();
+        const from = { scale: scale, x: posX, y: posY, rotZ: rotZ };
+        const to = {
+            scale: target.scale,
+            x: target.x,
+            y: target.y,
+            rotZ: rotZ + (target.spin || 0)
+        };
+        const t0 = performance.now();
+        const dur = ms || 900;
+        function step() {
+            const k = Math.min(1, (performance.now() - t0) / dur);
+            const e = easeInOut(k);
+            scale = from.scale + (to.scale - from.scale) * e;
+            posX = from.x + (to.x - from.x) * e;
+            posY = from.y + (to.y - from.y) * e;
+            rotZ = from.rotZ + (to.rotZ - from.rotZ) * e;
+            window.updateSolarTransform();
+            if (k < 1) camAnimId = requestAnimationFrame(step);
+            else { camAnimId = null; if (typeof done === 'function') done(); }
+        }
+        camAnimId = requestAnimationFrame(step);
+        // страховка: если rAF замер (фоновая вкладка, headless), шаг всё равно
+        // завершится по таймеру — иначе открытие объекта не произойдёт
+        let finished = false;
+        const finish = function () {
+            if (finished) return;
+            finished = true;
+            if (typeof done === 'function') done();
+        };
+        setTimeout(function () {
+            if (!finished) { stopCamAnim(); scale = to.scale; posX = to.x; posY = to.y; rotZ = to.rotZ; window.updateSolarTransform(); finish(); }
+        }, dur + 200);
+    }
+
+    // где объект на карте: берём координаты планеты из planetNodes или из маркера
+    function scenePointOf(el) {
+        const node = planetNodes.find(n => n.planet === el);
+        if (node && node.x !== undefined) return { x: node.x, y: node.y, scale: Math.max(6, scale * 3) };
+        const px = parseFloat(el.dataset.px);
+        const py = parseFloat(el.dataset.py);
+        if (isFinite(px) && isFinite(py)) return { x: px, y: py, scale: Math.max(4, scale * 2.4) };
+        const m = (el.style.transform || '').match(/translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/);
+        if (m) return { x: parseFloat(m[1]), y: parseFloat(m[2]), scale: Math.max(4, scale * 2.4) };
+        return null;
+    }
+
+    window.cinematicFocus = function (el, after) {
+        const p = el && scenePointOf(el);
+        if (!p) { if (typeof after === 'function') after(); return false; }
+        cinematicZoom(
+            { scale: p.scale, x: -p.scale * p.x, y: -p.scale * p.y, spin: 8 },
+            900,
+            function () { if (typeof after === 'function') after(); }
+        );
+        return true;
+    };
+
+    // любое действие пользователя отменяет наезд
+    document.addEventListener('wheel', stopCamAnim, { passive: true });
+    document.addEventListener('pointerdown', function (ev) {
+        if (!ev.target.closest || !ev.target.closest('.planet, .ship-marker')) stopCamAnim();
+    }, true);
+
+    // ПОСТОЯННАЯ ПРИВЯЗКА КЛИКОВ.
+    // Элементы сцены пересобираются (ресайз, смена слоя), и разовые
+    // обработчики терялись — планеты и корабли «переставали кликаться».
+    // Поэтому раз в секунду до-привязываем недостающие обработчики.
+    document.addEventListener('pointerdown', function (ev) {
+        window.__pdX = ev.clientX; window.__pdY = ev.clientY;
+    }, true);
+
+    function bindInteractions() {
+        document.querySelectorAll('.planet[data-planet-id]').forEach(function (el) {
+            if (el.__openBound) return;
+            el.__openBound = true;
+            el.addEventListener('dblclick', function (ev) {
+                ev.stopPropagation();
+                var id = el.getAttribute('data-planet-id');
+                if (!id) return;
+                // сначала красивый наезд, потом глобус
+                var opened = window.cinematicFocus(el, function () {
+                    if (typeof window.openGlobe === 'function') window.openGlobe(id);
+                });
+                if (!opened && typeof window.openGlobe === 'function') window.openGlobe(id);
+            });
+            el.addEventListener('click', function (ev) {
+                // одиночный клик открывает глобус, но только если это не перетаскивание
+                if (Math.hypot(ev.clientX - (window.__pdX || 0), ev.clientY - (window.__pdY || 0)) > 6) return;
+                var id = el.getAttribute('data-planet-id');
+                if (id && typeof window.openGlobe === 'function') {
+                    setTimeout(function () { window.openGlobe(id); }, 10);
+                }
+            });
+        });
+        document.querySelectorAll('.moon[data-moon]').forEach(function (el) {
+            if (el.__openBound) return;
+            el.__openBound = true;
+            el.addEventListener('dblclick', function (ev) {
+                ev.stopPropagation();
+                var nm = el.getAttribute('data-moon');
+                if (nm && window.PlanetView && typeof window.PlanetView.open === 'function') {
+                    window.PlanetView.open(nm);
+                }
+            });
+        });
+        document.querySelectorAll('.ship-marker').forEach(function (el) {
+            if (el.__openBound) return;
+            el.__openBound = true;
+            el.addEventListener('dblclick', function (ev) {
+                ev.stopPropagation();
+                var ri = parseInt(el.getAttribute('data-route'), 10);
+                var open = function () {
+                    if (!isNaN(ri) && typeof openTrafficCard === 'function') openTrafficCard(ri);
+                    else if (el._fleet && typeof openFleetCard === 'function') openFleetCard(el._fleet);
+                };
+                if (!window.cinematicFocus(el, open)) open();
+            });
+        });
+    }
+    setInterval(bindInteractions, 1000);
+    bindInteractions();
+
+    // ТЕСТ НАЕЗДА: ?cinema=earth — в 2.5 с запускает кинематографичный зум
+    (function cinemaTest() {
+        const id = new URLSearchParams(location.search).get('cinema');
+        if (!id) return;
+        setTimeout(function () {
+            const el = document.querySelector('.planet[data-planet-id="' + id + '"]');
+            if (!el) { document.title = 'CINEMA нет планеты'; return; }
+            window.cinematicFocus(el, function () {
+                if (typeof window.openGlobe === 'function') window.openGlobe(id);
+                document.title = 'CINEMA done scale=' + scale.toFixed(1);
+            });
+            setTimeout(function () {
+                document.title = 'CINEMA шаг scale=' + scale.toFixed(2) + ' pos=' + Math.round(posX) + ',' + Math.round(posY);
+            }, 450);
+        }, 2500);
+    })();
+
+    // ОТДЕЛЬНАЯ ВКЛАДКА ДЛЯ ПЛАНЕТАРНОГО ВИДА: ?pv=earth
+    // В этой вкладке карта не нужна вовсе — сразу скрываем её и открываем вид.
+    (function pvTab() {
+        const id = new URLSearchParams(location.search).get('pv');
+        if (!id) return;
+        document.body.classList.add('pv-mode');
+        const sc = document.querySelector('.solar-system-container');
+        if (sc) { sc.dataset.pvHidden = '1'; sc.style.display = 'none'; }
+        // видимый экран загрузки вместо чёрного: вкладка не должна выглядеть «сломанной»
+        const load = document.createElement('div');
+        load.id = 'pv-loading';
+        load.innerHTML = '<div style="font-size:18px">Загрузка планетарного вида</div>' +
+            '<div style="opacity:.65;font-size:13px">готовим поверхность и блоки…</div>';
+        document.body.appendChild(load);
+        let waited = 0;
+        const loadTimer = setInterval(function () {
+            waited += 400;
+            if (document.getElementById('blocks3d-wrap')) {
+                clearInterval(loadTimer);
+                if (load.parentNode) load.remove();
+            } else if (waited > 12000) {
+                clearInterval(loadTimer);
+                load.innerHTML = '<div style="font-size:18px">Планетарный вид не запустился</div>' +
+                    '<div style="opacity:.7;font-size:13px;max-width:420px;text-align:center">' +
+                    'Проверьте поддержку WebGL в браузере (chrome://gpu) и обновите страницу.</div>' +
+                    '<button onclick="location.reload()" style="margin-top:10px;padding:8px 16px;border-radius:8px;' +
+                    'border:none;background:#2ecc71;color:#04121f;font-weight:700;cursor:pointer">Обновить</button>';
+            }
+        }, 400);
+        const tryOpen = function (left) {
+            if (window.PlanetView && typeof window.PlanetView.open === 'function') {
+                window.PlanetView.open(id);
+                return;
+            }
+            if (left > 0) setTimeout(function () { tryOpen(left - 1); }, 400);
+        };
+        setTimeout(function () { tryOpen(12); }, 600);
+    })();
+
+    // УНИВЕРСАЛЬНЫЙ ТЕСТ КЛИКОВ: ?probe=planet|ship|moon
+    (function probe() {
+        const what = new URLSearchParams(location.search).get('probe');
+        if (!what) return;
+        setTimeout(function () {
+            let el = null;
+            if (what === 'planet') el = document.querySelector('.planet[data-planet-id="earth"]');
+            else if (what === 'ship') el = document.querySelector('.ship-marker[data-sid]');
+            else if (what === 'moon') el = document.querySelector('.moon[data-moon]');
+            if (!el) { document.title = 'PROBE нет цели ' + what; return; }
+            const r = el.getBoundingClientRect();
+            const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+            window.__pdX = cx; window.__pdY = cy;
+            const before = document.querySelectorAll('[id$="-modal"], #fleet-card').length;
+            el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+            setTimeout(function () {
+                const modals = Array.from(document.querySelectorAll('[id$="-modal"], #fleet-card'))
+                    .filter(function (m) { return getComputedStyle(m).display !== 'none'; })
+                    .map(function (m) { return m.id; });
+                document.title = 'PROBE ' + what + ' visible=[' + modals.join(',') + '] scale=' + scale.toFixed(2);
+            }, 1600);
+        }, 6000);
+    })();
+
+    // АУДИТ СКОРОСТЕЙ ПО ЕДИНОМУ РЕЕСТРУ: ?speedaudit=1
+    (function speedAudit() {
+        if (!new URLSearchParams(location.search).has('speedaudit')) return;
+        setTimeout(function () {
+            const kmPerPx = 149600000 / 185, C = 299792;
+            let max = 0, maxId = '', over = 0, n = 0;
+            SHIP_REGISTRY.forEach(function (rec, id) {
+                try {
+                    const a = rec.pose(simulatedTime);
+                    const b = rec.pose(simulatedTime + 600000);
+                    if (!a || !b) return;
+                    n++;
+                    const d = Math.hypot(b.x - a.x, b.y - a.y);
+                    const c = (d * kmPerPx / 600) / C;
+                    if (c > max) { max = c; maxId = id; }
+                    if (c > 0.25) over++;
+                } catch (e) { }
+            });
+            document.title = 'SPEEDAUDIT бортов=' + n + ' макс=' + max.toFixed(3) + 'c (' + maxId + ') быстрее0.25c=' + over;
+        }, 6000);
+    })();
+
+    // ГИБРИДНЫЙ РЕНДЕР: ?render=canvas — корабли рисуются одним canvas-проходом
+    (function hybridRender() {
+        if (new URLSearchParams(location.search).get('render') !== 'canvas') return;
+        document.body.classList.add('render-canvas');
+        const initCanvas = function () { if (window.SceneCanvas) window.SceneCanvas.init(); };
+        setTimeout(initCanvas, 1200);
+        let last = 0, frames = 0;
+        function loop() {
+            const now = performance.now();
+            if (now - last > 33) {            // 30 Гц для бортов
+                last = now;
+                if (window.SceneCanvas && window.__poseCache) {
+                    window.SceneCanvas.draw({ scale: scale, posX: posX, posY: posY, rotX: rotX, rotZ: rotZ });
+                    if (new URLSearchParams(location.search).has('canvasprobe')) {
+                        // проверка клика по борту: жмём в экранную точку первого борта
+                        try {
+                            const cam2 = window.__lastCamera || {};
+                            const sc2 = cam2.scale || 1;
+                            const cv = document.getElementById('scene-canvas');
+                            const rr2 = cv.getBoundingClientRect();
+                            const first = window.__poseCache.values().next().value;
+                            if (first) {
+                                const sx2 = rr2.left + rr2.width / 2 + (cam2.posX || 0) + first.x * sc2;
+                                const sy2 = rr2.top + rr2.height / 2 + (cam2.posY || 0) + first.y * sc2;
+                                document.dispatchEvent(new PointerEvent('pointerdown', {
+                                    clientX: sx2, clientY: sy2, bubbles: true
+                                }));
+                            }
+                        } catch (e) { }
+                        document.title = 'CANVAS бортов=' + (window.__canvasDrawn || 0) +
+                            ' cache=' + (window.__poseCache ? window.__poseCache.size : 0) +
+                            ' extra=' + (window.__poseExtra ? window.__poseExtra.size : 0) +
+                            ' routes=' + (window.__canvasRoutes || 0) + ' taps=' + (window.__canvasTap || 0) + ' markers=' + document.querySelectorAll('.ship-marker').length +
+                            ' scale=' + scale.toFixed(2);
+                    }
+                }
+            }
+            frames++;
+            requestAnimationFrame(loop);
+        }
+        setTimeout(function () { requestAnimationFrame(loop); }, 1500);
+    })();
+
+    // убираем анимацию меню на время первой раскладки
+    (function calmMenu() {
+        const menu = document.querySelector('.left-menu');
+        if (!menu) return;
+        menu.classList.add('no-anim');
+        setTimeout(function () { menu.classList.remove('no-anim'); }, 500);
+    })();
+
+    // РОУТЕР КЛИКОВ ПО БОРТАМ: маркеры не ловят мышь (перекрывали планеты),
+    // поэтому ищем ближайший борт по прямоугольникам и отправляем событие ему.
+    (function shipClickRouter() {
+        if (window.__shipRouter) return;
+        window.__shipRouter = true;
+        let prev = { t: 0, el: null };
+        document.addEventListener('pointerdown', function (ev) {
+            if (ev.target && ev.target.closest &&
+                ev.target.closest('.control-panel, .left-menu, [id$="-modal"], .resources-panel')) return;
+            const nodes = document.querySelectorAll('.ship-marker');
+            let best = null, bestD = 18;   // маркеры 2–3 px: расширили зону попадания
+            for (let i = 0; i < nodes.length; i++) {
+                const r = nodes[i].getBoundingClientRect();
+                if (!r.width) continue;
+                const d = Math.hypot(r.left + r.width / 2 - ev.clientX, r.top + r.height / 2 - ev.clientY);
+                if (d < bestD) { bestD = d; best = nodes[i]; }
+            }
+            if (!best) return;
+            const now = Date.now();
+            const dbl = prev.el === best && now - prev.t < 450;
+            prev = { t: now, el: best };
+            best.dispatchEvent(new MouseEvent(dbl ? 'dblclick' : 'click', {
+                bubbles: true, cancelable: true, clientX: ev.clientX, clientY: ev.clientY
+            }));
+            window.__shipTaps = (window.__shipTaps || 0) + 1;
+        }, true);
+    })();
+
     buildTimeExtras();
+    bindPlanetDblClick();
+    setTimeout(bindPlanetDblClick, 1500);
+    // состояние кнопок «нужен разведчик» обновляем периодически
+    setInterval(() => { try { if (window.updateSurveyButtons) window.updateSurveyButtons(); } catch (e) { } }, 1500);
+    // пока идёт загрузка профиля — проверяем доступ несколько раз
+    let gateTries = 0;
+    const gateTimer = setInterval(() => {
+        applyMaintenanceGate();
+        if (++gateTries > 20) clearInterval(gateTimer);
+    }, 500);
+    applyTestMode();
     applyViewFlags();
-    syncTimeUI(DEV_MODE ? 'day' : 'real');   // в отладке — «1д», в игре — реальное время
+    // «?debug» ускоряет время только администратору, иначе игрок получил бы ускорение ссылкой
+    // По умолчанию 1 секунда реального времени = 1 игровая минута (60×).
+    // Раньше подсветка показывала «1x», хотя время шло в 60 раз быстрее.
+    // РЕАЛЬНОЕ ВРЕМЯ: по умолчанию 1 секунда = 1 секунда.
+    // Ускорения (мин/сутки) игрок включает сам ползунком.
+    timeScale = 1;
+    syncTimeUI('real');
+    // Оставляем «пауза», «1x» и «1м» (ускорение 60×). Сутки/год — убираем.
+    document.querySelectorAll('.mode-btn[data-mode="hour"], .mode-btn[data-mode="day"],' +
+        ' .mode-btn[data-mode="year"]').forEach(b => { b.style.display = 'none'; });
+    document.querySelectorAll('.mode-btn[data-mode="min"]').forEach(b => {
+        b.style.setProperty('display', 'inline-flex', 'important');
+    });
+    // ?speed=min|sec — ручной выбор темпа для тестов и ссылок
+    (function applySpeedParam() {
+        const sp = new URLSearchParams(location.search).get('speed');
+        if (sp === 'min') { timeScale = 60; syncTimeUI('min'); }
+        else if (sp === 'sec') { timeScale = 1; syncTimeUI('sec'); }
+    })();
     // Масштаб и кеш сцены — после первой раскладки, иначе радиусы орбит ещё нулевые.
     requestAnimationFrame(() => {
         scale = fitScale();
@@ -5356,10 +9479,15 @@ document.addEventListener('DOMContentLoaded', () => {
         buildSceneCache();
         refreshSolarVisibility();
     });
-    const urlParams = new URLSearchParams(window.location.search); const autoLoginEmail = urlParams.get('login'); const doLogout = urlParams.get('logout');
+    const urlParams = new URLSearchParams(window.location.search); const doLogout = urlParams.get('logout');
+    // Автовход по ?login= убран: он пускал под любой учётной записью без пароля.
     if (doLogout === 'true') { currentUser = null; localStorage.removeItem('galaktika_user'); window.history.replaceState({}, document.title, window.location.pathname); }
-    else if (autoLoginEmail) { const user = usersDB.find(u => u.email === autoLoginEmail); if (user) { currentUser = user; saveUser(); } window.history.replaceState({}, document.title, window.location.pathname); }
-    updateAuthUI();
+    else if (urlParams.get('login')) { window.history.replaceState({}, document.title, window.location.pathname); }
+    try { updateAuthUI(); } catch (e) { /* нет DOM профиля */ }
+    // Прогресс живёт на сервере: тянем профиль при старте и отправляем изменения регулярно.
+    if (authToken && currentUser) pullServerProfile();
+    setInterval(() => { if (authToken && currentUser) syncProfile(); }, 60000);
+    window.addEventListener('beforeunload', () => { if (authToken && currentUser) syncProfile(); });
     buildStamp();
     if (urlParams.get('open') === 'res') window.openResourcesPanel();
     if (urlParams.get('open') === 'fleet') { window.openFleet(); const shp = urlParams.get('ship'); if (shp) window.renderHangar(shp); }
@@ -5370,14 +9498,504 @@ document.addEventListener('DOMContentLoaded', () => {
     if (urlParams.get('open') === 'buildings') window.openBuildings();
     if (urlParams.get('open') === 'science') window.openScience();
     if (urlParams.get('open') === 'globe') window.openGlobe(urlParams.get('world') || 'earth');
+    // ?consistency=1 — автотест согласованности: DOM vs WorldCoords (в координатах сцены)
+    if (urlParams.get('consistency')) {
+        setTimeout(() => {
+            const WC = window.WorldCoords;
+            if (!WC) { document.title = 'CONS нет WorldCoords'; return; }
+            const now = simulatedTime;
+            const model = WC.planetsAt(now);
+            const dom = {};
+            planetNodes.forEach(n => {
+                const id = n.id || (n.planet && n.planet.getAttribute && n.planet.getAttribute('data-planet-id'));
+                if (!id || n.x === undefined) return;
+                dom[id] = { x: n.x, y: n.y };
+            });
+            const rows = [], bad = [];
+            let maxDelta = 0, worst = '-';
+            for (const id in model) {
+                if (!dom[id]) continue;
+                const d = Math.hypot(model[id].x - dom[id].x, model[id].y - dom[id].y);
+                rows.push(id + ':' + d.toFixed(0));
+                if (d > maxDelta) { maxDelta = d; worst = id; }
+                if (d > 5) bad.push(id + ' Δ' + d.toFixed(0) + 'px');
+            }
+            // маркеры: расстояние до ближайшей планеты в координатах сцены
+            const planets = Object.keys(dom).map(k => dom[k]);
+            // Точная проверка: маркер либо у своей планеты, либо лежит НА пути
+            // (isPointInStroke с утолщённым штрихом), либо это пояс/гравитация.
+            let far = 0; const farList = [];
+            function nearestPlanet(x, y) {
+                let best = 1e9;
+                planets.forEach(p2 => { const d = Math.hypot(p2.x - x, p2.y - y); if (d < best) best = d; });
+                return best;
+            }
+            function onAnyLine(paths, x, y) {
+                for (const pth of paths) {
+                    try {
+                        const L = pth.getTotalLength();
+                        if (!L) continue;
+                        const N = 400;
+                        for (let k = 0; k <= N; k++) {
+                            const q = pth.getPointAtLength(L * k / N);
+                            if (Math.hypot(q.x - x, q.y - y) < 2) return true;
+                        }
+                    } catch (e) { }
+                }
+                return false;
+            }
+            const tradePathsEls = [...document.querySelectorAll('#trade-traffic path')];
+            const fleetPathsEls = [...document.querySelectorAll('#fleet-traffic path')];
+            document.querySelectorAll('.ship-marker').forEach(el => {
+                const x = parseFloat(el.style.left), y = parseFloat(el.style.top);
+                if (isNaN(x) || isNaN(y)) return;
+                const layer = (el.parentElement && el.parentElement.id) || '?';
+                // если у маркера есть свой путь — проверяем строго по нему
+                if (el._pathEl && el._pathEl.getTotalLength) {
+                    const L = el._pathEl.getTotalLength();
+                    let bestD = 1e9;
+                    for (let k = 0; k <= 500; k++) {
+                        const q = el._pathEl.getPointAtLength(L * k / 500);
+                        const d = Math.hypot(q.x - x, q.y - y);
+                        if (d < bestD) bestD = d;
+                    }
+                    // у флотов есть боковой сдвиг 7 px, чтобы не сливаться с торговцами
+                    const tol = layer === 'fleet-traffic' ? 9 : 2;
+                    if (bestD > tol) {
+                        far++;
+                        farList.push(layer + ':off' + bestD.toFixed(1) + ' "' + (el.getAttribute('title') || '').slice(0, 14) + '"');
+                    }
+                    return;
+                }
+                const title = (el.getAttribute('title') || '');
+                if (layer === 'civil-traffic' && title.indexOf('платформ') >= 0) return;   // платформы скрыты
+                const dp = nearestPlanet(x, y);
+                // Рубежи: гражданские борта ходят вокруг планет и лун (луна
+                // добавляет ~26 px), поэтому допуск шире; рудные — в поясе.
+                const isBelt = title.indexOf('пояс') >= 0;
+                if (isBelt) {
+                    const r = Math.hypot(x, y);
+                    if (r >= 240 && r <= 320) return;                   // в кольце пояса
+                }
+                if (title.indexOf('Врат') >= 0) return;               // рейсы к Вратам — вне планет
+                if (layer === 'civil-traffic' && dp <= 100) return;
+                if (dp <= 55) return;                                  // стоит у планеты
+                if (layer === 'trade-traffic' && onAnyLine(tradePathsEls, x, y)) return;
+                if (layer === 'fleet-traffic' && onAnyLine(fleetPathsEls, x, y)) return;
+                far++;
+                farList.push(layer + ':' + Math.round(dp) + 'px "' + title.slice(0, 14) + '"');
+            });
+            // начало/конец трассы флота = планета (≤2 px)
+            let routeOff = 0;
+            fleetPathsEls.forEach(pth => {
+                try {
+                    const L = pth.getTotalLength();
+                    if (!L) return;
+                    const a = pth.getPointAtLength(0), b = pth.getPointAtLength(L);
+                    if (nearestPlanet(a.x, a.y) > 2) routeOff++;
+                    if (nearestPlanet(b.x, b.y) > 2) routeOff++;
+                } catch (e) { }
+            });
+            document.title = 'CONS планет Δmax=' + maxDelta.toFixed(0) + 'px (' + worst + ')' +
+                ' | расхождений>5px: ' + bad.length + (bad.length ? ' ' + bad.slice(0, 4).join(',') : '') +
+                ' | маркеров вне мест: ' + far + (farList.length ? ' ' + farList.slice(0, 5).join(',') : '') +
+                ' | концов трасс не у планеты: ' + routeOff;
+        }, 5000);
+    }
+
+    // ?fleetjump=1 — поиск разрывов: максимальный скачок маркера за кадр
+    if (urlParams.get('fleetjump')) {
+        const prev = new Map();
+        let frames = 0, maxJump = 0, jumps = 0, where = '-';
+        const tickJ = () => {
+            document.querySelectorAll('#fleet-traffic .ship-marker').forEach((el, i) => {
+                const x = parseFloat(el.style.left), y = parseFloat(el.style.top);
+                if (isNaN(x) || isNaN(y)) return;
+                const key = i + ':' + (el.getAttribute('title') || '');
+                const p0 = prev.get(key);
+                if (p0) {
+                    const d = Math.hypot(x - p0.x, y - p0.y);
+                    if (d > maxJump) { maxJump = d; where = (el.getAttribute('title') || '').slice(0, 16); }
+                    if (d > 8) jumps++;
+                }
+                prev.set(key, { x: x, y: y });
+            });
+            if (++frames < 40) requestAnimationFrame(tickJ);
+            else document.title = 'JUMP кадров=' + frames + ' макс_скачок=' + maxJump.toFixed(1) +
+                'px скачков>8px=' + jumps + ' (' + where + ')';
+        };
+        setTimeout(tickJ, 1500);
+    }
+
+    // Заморозку ставим СРАЗУ (а не только по таймеру): иначе до первого
+    // срабатывания успевают пройти секунды и кадр «уезжает» на минуты.
+    if (urlParams.get('freeze') !== null && urlParams.get('freeze') !== '') {
+        const f0 = parseFloat(urlParams.get('freeze'));
+        if (isFinite(f0)) {
+            const base0 = (window.Motion && Motion.TABLES.time.epochMs) || EPOCH_MS;
+            const rawOff = (typeof GAME_OFFSET_MS === 'number') ? GAME_OFFSET_MS : 0;
+            window.__freezeAt = base0 + Math.floor(rawOff / 86400000) * 86400000 + f0 * 1000;
+            simulatedTime = window.__freezeAt;
+            if (window.Motion) window.Motion.setTime(window.__freezeAt);
+        }
+    }
+
+    // ?freeze=<игровые секунды от эпохи> — полностью воспроизводимый кадр:
+    // время ставится АБСОЛЮТНО (от J2000), поэтому кадр не зависит от загрузки
+    if (urlParams.get('freeze') !== null && urlParams.get('freeze') !== '') {
+        const frozen = parseFloat(urlParams.get('freeze'));
+        if (isFinite(frozen)) {
+            const baseEpoch = (window.Motion && Motion.TABLES.time.epochMs) || EPOCH_MS;
+            const apply = () => {
+                // Игровая эпоха, округлённая до суток: иначе offset содержит
+                // текущее время загрузки, и два кадра с разницей «1 секунда»
+                // на самом деле отстоят на минуты — все замеры скорости врали.
+                const rawOffset = (typeof GAME_OFFSET_MS === 'number') ? GAME_OFFSET_MS : 0;
+                const offset = Math.floor(rawOffset / 86400000) * 86400000;
+                simulatedTime = baseEpoch + offset + frozen * 1000;
+                window.__freezeAt = simulatedTime;   // держим это время каждый кадр
+                timeScale = 0;
+                if (window.Motion) window.Motion.setTime(simulatedTime);
+            };
+            setTimeout(apply, 1200);
+            setTimeout(apply, 2400);
+            setTimeout(apply, 3600);
+        }
+    }
+
+    // ?routes=1 — инвентаризация маршрутов и видимости бортов
+    if (urlParams.get('routes')) {
+        setTimeout(() => {
+            const rows = [];
+            document.querySelectorAll('#fleet-traffic .ship-marker').forEach((el, i) => {
+                const st = getComputedStyle(el);
+                const x = parseFloat(el.style.left) || 0, y = parseFloat(el.style.top) || 0;
+                rows.push(i + ':' + (el.getAttribute('title') || '').slice(0, 18) +
+                    ' xy=' + Math.round(x) + ',' + Math.round(y) +
+                    ' r=' + Math.round(Math.hypot(x, y)) +
+                    ' ' + st.display + '/' + st.opacity);
+            });
+            const paths = document.querySelectorAll('#fleet-traffic path').length;
+            const trade = document.querySelectorAll('#trade-traffic .ship-marker').length;
+            const dbg = JSON.stringify((window.__fltDebug || []).slice(0, 2));
+            const err = window.__fleetItemErr || '-';
+            const fj = window.__fj || { max: 0, jumps: 0, frames: 0, where: '' };
+            const fjTxt = ' скачок=' + fj.max.toFixed(1) + 'px/>8:' + fj.jumps + ' кадров=' + fj.frames + ' (' + fj.where + ')';
+            // сверяем нарисованное с ядром: позиция маркера против Motion.shipPose
+            let maxDev = 0, devId = '-';
+            try {
+                document.querySelectorAll('#fleet-traffic .ship-marker').forEach((el, i) => {
+                    const ps = window.Motion && window.Motion.shipPose(i, simulatedTime);
+                    if (!ps) return;
+                    const d = Math.hypot((parseFloat(el.style.left) || 0) - ps.x,
+                                         (parseFloat(el.style.top) || 0) - ps.y);
+                    if (d > maxDev) { maxDev = d; devId = i + ':' + (el.getAttribute('title') || ''); }
+                });
+            } catch (e) { maxDev = -1; }
+            window.__moonDbg = moonNodes.map(n => ({
+                name: (n.moon && n.moon.getAttribute('data-moon')) || '?',
+                period: n.period, radius: +n.radius.toFixed(1)
+            }));
+            document.title = 'ROUTES moons=' + JSON.stringify(window.__moonDbg.slice(0, 6)) + ' trade=' + JSON.stringify((window.__tradeDbg || []).slice(0, 4)) + ' откл_ядра=' + maxDev.toFixed(1) + 'px(' + devId + ') путей=' + paths + ' флотов=' + rows.length +
+                ' err=' + err + fjTxt + ' dbg=' + dbg +
+                ' торговцев=' + trade + ' || ' + rows.join(' ; ');
+        }, 3500);
+    }
+
+    // ?fleetdiag=1 — качество движения флотов: скорость, рывки, остановки
+    if (urlParams.get('fleetdiag')) {
+        const samples = new Map();
+        let rounds = 0;
+        const tickSample = () => {
+            document.querySelectorAll('#fleet-traffic .ship-marker').forEach((el, i) => {
+                const x = parseFloat(el.style.left), y = parseFloat(el.style.top);
+                if (isNaN(x) || isNaN(y)) return;
+                const key = i + ':' + (el.getAttribute('title') || '');
+                if (!samples.has(key)) samples.set(key, []);
+                samples.get(key).push({ x: x, y: y, t: performance.now(), sim: simulatedTime });
+            });
+            if (++rounds < 10) setTimeout(tickSample, 250);
+            else {
+                let maxJump = 0, maxSpeed = 0, minSpeed = 1e9, jumps = 0, blocks = 0;
+                let sumSpeed = 0, cnt = 0;
+                samples.forEach(arr => {
+                    for (let k = 1; k < arr.length; k++) {
+                        const dt = (arr[k].t - arr[k - 1].t) / 1000 || 1;
+                        const d = Math.hypot(arr[k].x - arr[k - 1].x, arr[k].y - arr[k - 1].y);
+                        const v = d / dt;
+                        if (d > 25) jumps++;
+                        if (v > maxSpeed) maxSpeed = v;
+                        if (v < minSpeed) minSpeed = v;
+                        sumSpeed += v; cnt++;
+                        if (d > maxJump) maxJump = d;
+                    }
+                    blocks++;
+                });
+                let simSpan = 0;
+                samples.forEach(arr => { if (arr.length > 1) simSpan = Math.max(simSpan, arr[arr.length - 1].sim - arr[0].sim); });
+                document.title = 'FLEETDIAG игровых_сек=' + (simSpan / 1000).toFixed(1) + ' бортов=' + blocks +
+                    ' скорость_ср=' + (cnt ? (sumSpeed / cnt).toFixed(1) : '0') + 'px/с' +
+                    ' макс=' + maxSpeed.toFixed(1) +
+                    ' мин=' + (minSpeed === 1e9 ? '0' : minSpeed.toFixed(1)) +
+                    ' рывков>25px=' + jumps + ' макс_рывок=' + maxJump.toFixed(0) + 'px';
+            }
+        };
+        setTimeout(tickSample, 600);
+    }
+
+    // ?speeds=1 — матрица скоростей флота
+    if (urlParams.get('speeds')) {
+        setTimeout(() => {
+            const SM = window.SpeedModel;
+            if (!SM) { document.title = 'SPEEDS нет модуля'; return; }
+            const base = SM.matrix({}).map(r => r.id + ':' + r.speed).join(' ');
+            const up = SM.matrix({ engineLevel: 5, techLevel: 10 }).map(r => r.id + ':' + r.speed).join(' ');
+            document.title = 'SPEEDS сток ' + base + ' || макс ' + up;
+        }, 2500);
+    }
+
+    // ?errors=1 — ошибки, ход времени, движение планет и реакция флота на паузу
+    if (urlParams.get('errors')) {
+        window.__errs2 = [];
+        window.addEventListener('error', (ev) => window.__errs2.push(String(ev.message).slice(0, 80)));
+        window.addEventListener('unhandledrejection', (ev) => window.__errs2.push('promise:' + String(ev.reason).slice(0, 70)));
+        const earthOf = () => planetNodes.find(n =>
+            (n.planet && n.planet.getAttribute && n.planet.getAttribute('data-planet-id')) === 'earth') || null;
+        let t0 = 0, e0 = null, f0 = null, paused = null;
+        setTimeout(() => {
+            t0 = simulatedTime;
+            const e = earthOf(); if (e) e0 = e.x;
+            const fl = document.querySelector('#fleet-traffic .ship-marker');
+            if (fl) f0 = fl.style.left;
+        }, 1200);
+        setTimeout(() => {
+            const e = earthOf();
+            const dt = (simulatedTime - t0) / 1000;
+            const earthShift = (e && e0 !== null && typeof e.x === 'number') ? +(e.x - e0).toFixed(2) : null;
+            let sw = 'ok';
+            try {
+                window.setTimeMode('pause');
+                if (timeScale !== 0) sw = 'pause:' + timeScale;
+                window.setTimeMode('min');
+                if (timeScale !== 60) sw += ' min:' + timeScale;
+            } catch (err) { sw = 'throw:' + err.message; }
+            const withX = planetNodes.filter(n => typeof n.x === 'number').length;
+            document.title = 'ERR timeScale=' + timeScale + ' игровых_сек=' + dt.toFixed(1) +
+                ' земля_сдвиг=' + (earthShift === null ? '?' : earthShift) +
+                ' планет_с_x=' + withX + '/' + planetNodes.length +
+                ' переключатель=' + sw + ' ошибок=' + window.__errs2.length +
+                ' ранних=' + ((window.__earlyErrs || []).length) +
+                (window.__earlyErrs && window.__earlyErrs.length ? ' [' + window.__earlyErrs.slice(0, 2).join(' | ') + ']' : '') +
+                ' animErr=' + (window.__animErr || '-');
+            // сначала проверяем, что при 60× борт ДВИЖЕТСЯ
+            const fl0 = document.querySelector('#fleet-traffic .ship-marker');
+            if (fl0) {
+                const l1 = fl0.style.left, t1 = fl0.style.top;
+                setTimeout(() => {
+                    const moved = (fl0.style.left !== l1) || (fl0.style.top !== t1);
+                    document.title += ' | в движении: ' + (moved ? 'да' : 'НЕТ');
+                }, 1500);
+            }
+            // пауза должна заморозить борт
+            const fl2 = document.querySelector('#fleet-traffic .ship-marker');
+            if (fl2 && f0 !== null) {
+                window.setTimeMode('pause');
+                const before = fl2.style.left;
+                setTimeout(() => {
+                    const moved = fl2.style.left !== before;
+                    document.title += ' | пауза: ' + (moved ? 'борт ДВИЖЕТСЯ' : 'борт стоит');
+                    window.setTimeMode('min');
+                }, 1500);
+            }
+        }, 20000);
+    }
+
+    // ?wc=1 — самопроверка единой системы координат
+    if (urlParams.get('wc')) {
+        setTimeout(() => {
+            document.title = 'WC ' + (window.WorldCoords ? window.WorldCoords.selfTest() : 'модуль не загружен');
+        }, 2500);
+    }
+
+    // ?checkfleet=1 — проверка координат: каждый борт должен стоять у своей планеты
+    if (urlParams.get('checkfleet')) {
+        setTimeout(() => {
+            const sun = document.querySelector('.sun');
+            const sr = sun ? sun.getBoundingClientRect() : null;
+            const cx = sr ? sr.left + sr.width / 2 : innerWidth / 2;
+            const cy = sr ? sr.top + sr.height / 2 : innerHeight / 2;
+            const planets = planetNodes.filter(n => n.x !== undefined).map(n => ({
+                id: n.id || '?', x: n.x, y: n.y
+            }));
+            const bad = [];
+            document.querySelectorAll('.ship-marker').forEach(el => {
+                // сцена масштабируется/сдвигается — считаем в её координатах
+                const x = parseFloat(el.style.left) || 0;
+                const y = parseFloat(el.style.top) || 0;
+                let best = null, bestD = 1e9;
+                planets.forEach(p2 => {
+                    const d = Math.hypot(p2.x - x, p2.y - y);
+                    if (d < bestD) { bestD = d; best = p2.id; }
+                });
+                if (bestD > 120) {
+                    bad.push((el.parentElement.id || '?') + ' ' + (el.getAttribute('title') || '').slice(0, 18) +
+                             ' → ' + Math.round(x) + ',' + Math.round(y) + ' (до ' + best + ' ' + Math.round(bestD) + 'px)');
+                }
+            });
+            document.title = 'FLEETCHECK планет:' + planets.length + ' бортов:' +
+                document.querySelectorAll('.ship-marker').length + ' вне орбит:' + bad.length +
+                (bad.length ? ' | ' + bad.slice(0, 6).join(' ; ') : ' | все у своих планет');
+        }, 4500);
+    }
+
+    // ?far=1 — самые далёкие от Солнца маркеры на экране (вне зависимости от слоя)
+    if (urlParams.get('far')) {
+        setTimeout(() => {
+            const sun = document.querySelector('.sun');
+            const sr = sun ? sun.getBoundingClientRect() : null;
+            const cx = sr ? sr.left + sr.width / 2 : innerWidth / 2;
+            const cy = sr ? sr.top + sr.height / 2 : innerHeight / 2;
+            const rows = [];
+            document.querySelectorAll('.ship-marker').forEach(el => {
+                const r = el.getBoundingClientRect();
+                const d = Math.hypot(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy);
+                rows.push({ d: Math.round(d), parent: el.parentElement.id || '?',
+                            title: (el.getAttribute('title') || '').slice(0, 24),
+                            x: Math.round(r.left), y: Math.round(r.top),
+                            vis: getComputedStyle(el).display + '/' + getComputedStyle(el.parentElement).display });
+            });
+            rows.sort((a, b) => b.d - a.d);
+            document.title = 'FAR ' + rows.slice(0, 8).map(r =>
+                r.d + 'px ' + r.parent + ' [' + r.title + '] ' + r.x + ',' + r.y + ' ' + r.vis).join(' ; ');
+        }, 4500);
+    }
+
+    // ?nolayer=civil|trade|fleet — выключить слой, чтобы найти источник
+    if (urlParams.get('nolayer')) {
+        const which = urlParams.get('nolayer');
+        setInterval(() => {
+            const map = { civil: '#civil-traffic', trade: '#trade-traffic', fleet: '#fleet-traffic' };
+            const sel = map[which] || ('#' + which);
+            document.querySelectorAll(sel).forEach(el => { el.style.display = 'none'; });
+        }, 400);
+    }
+
+    // ?listmarkers=1 — полный список маркеров: слой, координаты, подпись
+    if (urlParams.get('listmarkers')) {
+        setTimeout(() => {
+            const rows = [];
+            document.querySelectorAll('.ship-marker, .gravity-platform').forEach(el => {
+                const p = el.parentElement || {};
+                const x = Math.round(parseFloat(el.style.left) || 0);
+                const y = Math.round(parseFloat(el.style.top) || 0);
+                rows.push((p.id || 'no') + '|' + x + ',' + y + '|' +
+                          (el.getAttribute('title') || '').slice(0, 26));
+            });
+            document.title = 'LIST ' + rows.join(' ; ');
+        }, 4200);
+    }
+
+    // ?dumpmarkers=1 — разбор маркеров по родительским слоям (диагностика)
+    if (urlParams.get('dumpmarkers')) {
+        setTimeout(() => {
+            const byParent = {};
+            const far = [];
+            document.querySelectorAll('.ship-marker, .gravity-platform').forEach(el => {
+                const p = el.parentElement || {};
+                const key = (p.id || p.className || 'нет').toString().slice(0, 24);
+                byParent[key] = (byParent[key] || 0) + 1;
+                const x = parseFloat(el.style.left) || 0;
+                const y = parseFloat(el.style.top) || 0;
+                if (Math.hypot(x, y) > 380) {
+                    far.push(key + '@' + Math.round(x) + ',' + Math.round(y) +
+                             '(' + (el.getAttribute('title') || el.className).toString().slice(0, 18) + ')');
+                }
+            });
+            const layers = [...document.querySelectorAll('#fleet-traffic, #trade-traffic, #civil-traffic, #fleet-dots, #gravity-platform')]
+                .map(el => el.id + ':' + el.childElementCount).join(' ');
+            document.title = 'DUMP ' + JSON.stringify(byParent) + ' | слои: ' + layers +
+                             ' | дальние: ' + far.slice(0, 6).join(' ; ');
+        }, 4000);
+    }
+
+    // ?testpv=mars — пройти цепочку «глобус → планетарный вид» и записать итог
+    if (urlParams.get('testpv')) {
+        window.__errs = [];
+        window.addEventListener('error', (ev) => window.__errs.push(String(ev.message || ev.error)));
+        setTimeout(() => {
+            const id = urlParams.get('testpv');
+            if (urlParams.get('mode') === 'direct') {
+                try { window.PlanetView.open(id); } catch (e) { window.__errs.push('PV.open: ' + e.message); }
+                setTimeout(function () {
+                    const wrap = document.getElementById('blocks3d-wrap');
+                    const pv = document.querySelector('#pv-bar');
+                    document.title = 'DIRECT id=' + id + ' blocks3d=' + (window.Blocks3D ? 'да' : 'нет')
+                        + ' wrap=' + (wrap ? 'есть' : 'нет') + ' pvbar=' + (pv ? 'есть' : 'нет')
+                        + ' errs=' + (window.__errs.join(' | ') || 'нет')
+                        + ' step=' + (window.__pvStep || '-')
+                        + ' pvErr=' + (window.__pvErr || '-');
+                }, 4000);
+                return;
+            }
+            try { window.openGlobe(id); } catch (e) { window.__errs.push('openGlobe: ' + e.message); }
+            setTimeout(() => {
+                const btn = document.getElementById('globe-surface');
+                if (!btn) { window.__errs.push('нет кнопки globe-surface'); }
+                else { try { btn.click(); } catch (e) { window.__errs.push('click: ' + e.message); } }
+                setTimeout(() => {
+                    const wrap = document.getElementById('blocks3d-wrap');
+                    const pv = document.querySelector('#pv-bar');
+                    const modal = document.getElementById('globe-modal');
+                    document.title = 'PV id=' + id
+                        + ' blocks3d=' + (window.Blocks3D ? 'да' : 'нет')
+                        + ' wrap=' + (wrap ? 'есть' : 'нет')
+                        + ' pvbar=' + (pv ? 'есть' : 'нет')
+                        + ' globe=' + (modal ? getComputedStyle(modal).display : 'нет')
+                        + ' errs=' + (window.__errs.join(' | ') || 'нет');
+                }, 4000);
+            }, 1500);
+        }, 2500);
+    }
+
+    // ?testdbl=earth — проверка обработчика двойного клика: шлём настоящий dblclick
+    if (urlParams.get('testdbl')) {
+        setTimeout(() => {
+            const id = urlParams.get('testdbl');
+            const el = document.querySelector('.planet[data-planet-id="' + id + '"]');
+            const modal = document.getElementById('globe-modal');
+            const before = modal ? getComputedStyle(modal).display : 'нет модалки';
+            let error = '';
+            try {
+                if (!el) throw new Error('планета ' + id + ' не найдена');
+                const rect = el.getBoundingClientRect();
+                const cx2 = rect.left + rect.width / 2, cy2 = rect.top + rect.height / 2;
+                const gap = parseInt(urlParams.get('gap') || '120', 10);
+                const fire = (type) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: cx2, clientY: cy2 }));
+                fire('pointerdown'); fire('pointerup'); fire('click');
+                setTimeout(() => {
+                    fire('pointerdown'); fire('pointerup'); fire('click'); fire('dblclick');
+                }, gap);
+            } catch (e) { error = e.message; }
+            setTimeout(() => {
+                const m = document.getElementById('globe-modal');
+                const after = m ? getComputedStyle(m).display : 'нет модалки';
+                document.title = 'DBL id=' + id + ' before=' + before + ' after=' + after + (error ? ' err=' + error : '');
+            }, 900);
+        }, 3000);
+    }
     if (urlParams.get('open') === 'surface') window.showSurface(urlParams.get('world') || 'earth');
     if (urlParams.get('open') === 'guild') window.openGuild();
     if (urlParams.get('open') === 'map') window.openMap();
     if (urlParams.get('autopilot')) setTimeout(() => window.runAutopilot(), 400);
     // ВАЖНО: берём из уже разобранных urlParams — auto-login выше чистит query через replaceState
     const legendParam = urlParams.get('legend');
-    if (legendParam !== null) startLegend(Number(legendParam) || 0);
-    else if (currentUser && !currentUser.hasSeenLegend) startLegend();
+    if (legendParam !== null) {
+        startLegend(Number(legendParam) || 0);
+    } else {
+        // Вступление больше не запускается само: осталось кнопкой «История» в меню
+        const legendOverlay = document.getElementById('legend-overlay');
+        if (legendOverlay) legendOverlay.style.display = 'none';
+    }
     requestAnimationFrame(animate);
 });
 
@@ -5395,3 +10013,142 @@ function mergeKeplerWorlds() {
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mergeKeplerWorlds);
 else setTimeout(mergeKeplerWorlds, 0);
+
+// =========================================================
+// КОРАБЛИ: покупка и продажа считаются на сервере
+// (цены и комплектующие в ship_table() на сервере, клиент только показывает)
+// =========================================================
+window.buyShip = function (shipId) {
+    ensureFleet(currentUser);
+    var token = '';
+    try { token = localStorage.getItem('galaktika_token') || ''; } catch (e) { token = ''; }
+    if (!token) { notify('Войдите в игру, чтобы покупать корабли'); return; }
+    fetch('/api/ship/buy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+        body: JSON.stringify({ id: shipId })
+    }).then(function (r) { return r.json(); }).then(function (res) {
+        if (res.error) { notify(res.error); return; }
+        if (window.pullServerProfile) window.pullServerProfile();
+        if (typeof res.credits === 'number') currentUser.credits = res.credits;
+        if (res.resources) { currentUser.resources = currentUser.resources || {}; Object.assign(currentUser.resources, res.resources); }
+        saveUser(); renderDock(); updateCredits();
+        notify('Корабль куплен и стоит в доке');
+    }).catch(function () { notify('Сервер недоступен — покупка кораблей недоступна'); });
+};
+
+window.sellShip = function (index) {
+    var token = '';
+    try { token = localStorage.getItem('galaktika_token') || ''; } catch (e) { token = ''; }
+    if (!token) { notify('Войдите в игру'); return; }
+    fetch('/api/ship/sell', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+        body: JSON.stringify({ index: index })
+    }).then(function (r) { return r.json(); }).then(function (res) {
+        if (res.error) { notify(res.error); return; }
+        if (window.pullServerProfile) window.pullServerProfile();
+        if (typeof res.credits === 'number') currentUser.credits = res.credits;
+        saveUser(); renderDock(); updateCredits();
+        notify('Продан за ' + (res.refund || 0).toLocaleString() + ' кр');
+    }).catch(function () { notify('Сервер недоступен — продажа недоступна'); });
+};
+// =========================================================
+// СТРОЙКА: уровень сооружения и списание считает сервер
+// =========================================================
+window.buildFactory = function (fid) {
+    ensureFleet(currentUser);
+    var token = '';
+    try { token = localStorage.getItem('galaktika_token') || ''; } catch (e) { token = ''; }
+    if (!token) { notify('Войдите в игру, чтобы строить'); return; }
+    fetch('/api/build/factory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+        body: JSON.stringify({ id: fid })
+    }).then(function (r) { return r.json(); }).then(function (res) {
+        if (res.error) { notify(res.error); return; }
+        if (window.pullServerProfile) window.pullServerProfile();
+        if (typeof res.credits === 'number') currentUser.credits = res.credits;
+        currentUser.resources = currentUser.resources || {};
+        if (typeof res.steel === 'number') currentUser.resources.steel = res.steel;
+        currentUser.factories = currentUser.factories || {};
+        currentUser.factories[fid] = res.level;
+        saveUser(); renderDock(); updateCredits();
+        notify('Построено: уровень ' + res.level + ' за ' + (res.cost || 0).toLocaleString() + ' кр');
+    }).catch(function () { notify('Сервер недоступен — стройка недоступна'); });
+};
+// =========================================================
+// МОДУЛИ КОЛОНИИ: клон-комплекс и медмодули — считает сервер
+// =========================================================
+window.buyCloner = function () {
+    ensureFleet(currentUser);
+    var token = '';
+    try { token = localStorage.getItem('galaktika_token') || ''; } catch (e) { token = ''; }
+    if (!token) { notify('Войдите в игру'); return; }
+    fetch('/api/build/module', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+        body: JSON.stringify({ kind: 'cloner' })
+    }).then(function (r) { return r.json(); }).then(function (res) {
+        if (res.error) { notify(res.error); return; }
+        if (window.pullServerProfile) window.pullServerProfile();
+        if (typeof res.credits === 'number') currentUser.credits = res.credits;
+        currentUser.cloners = res.count;
+        saveUser(); updateCredits(); renderDock();
+        notify('Комплекс клонирования куплен: всего ' + res.count);
+    }).catch(function () { notify('Сервер недоступен'); });
+};
+
+window.buyMedical = function () {
+    ensureFleet(currentUser);
+    var token = '';
+    try { token = localStorage.getItem('galaktika_token') || ''; } catch (e) { token = ''; }
+    if (!token) { notify('Войдите в игру'); return; }
+    fetch('/api/build/module', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+        body: JSON.stringify({ kind: 'medical_buy' })
+    }).then(function (r) { return r.json(); }).then(function (res) {
+        if (res.error) { notify(res.error); return; }
+        if (window.pullServerProfile) window.pullServerProfile();
+        if (typeof res.credits === 'number') currentUser.credits = res.credits;
+        currentUser.medModules = res.count;
+        saveUser(); updateCredits(); renderDock();
+        notify('Медицинский модуль куплен: всего ' + res.count);
+    }).catch(function () { notify('Сервер недоступен'); });
+};
+
+window.buildMedical = function () {
+    ensureFleet(currentUser);
+    var token = '';
+    try { token = localStorage.getItem('galaktika_token') || ''; } catch (e) { token = ''; }
+    if (!token) { notify('Войдите в игру'); return; }
+    fetch('/api/build/module', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+        body: JSON.stringify({ kind: 'medical_build' })
+    }).then(function (r) { return r.json(); }).then(function (res) {
+        if (res.error) { notify(res.error); return; }
+        if (window.pullServerProfile) window.pullServerProfile();
+        if (typeof res.credits === 'number') currentUser.credits = res.credits;
+        currentUser.medModules = res.count;
+        saveUser(); updateCredits(); renderDock();
+        notify('Медицинский модуль построен: всего ' + res.count);
+    }).catch(function () { notify('Сервер недоступен'); });
+};
+// =========================================================
+// СТРОЙКА С ВРЕМЕНЕМ: заказ уходит в серверную очередь (js/build.js)
+// =========================================================
+function __queueBuild(kind, id) {
+    if (typeof window.buildStart === 'function') return window.buildStart(kind, id);
+    notify('Модуль стройки не загрузился');
+    return null;
+}
+window.buyShip = function (shipId) { ensureFleet(currentUser); __queueBuild('ship', shipId); };
+window.buildFactory = function (fid) { ensureFleet(currentUser); __queueBuild('factory', fid); };
+window.buyCloner = function () { ensureFleet(currentUser); __queueBuild('module', 'cloner'); };
+window.buyMedical = function () { ensureFleet(currentUser); __queueBuild('module', 'medical_buy'); };
+// Общий план: корабли в реальном масштабе не видны — прячем до приближения
+const SHIP_HIDE_BELOW_SCALE = 0.22;
+
+window.buildMedical = function () { ensureFleet(currentUser); __queueBuild('module', 'medical_build'); };

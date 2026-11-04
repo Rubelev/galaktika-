@@ -1,0 +1,17 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+body{margin:0;background:#05070d;font:12px system-ui;color:#9fb0c9}
+canvas{display:block;margin:8px auto;border:1px solid #22304a;border-radius:6px}
+h3{margin:10px 20px 0;font-weight:400;color:#7fe3ff}
+</style></head><body>
+<h3>earthlike</h3><canvas id="a" width="900" height="450"></canvas>
+<h3>gas</h3><canvas id="b" width="900" height="450"></canvas>
+<h3>rocky</h3><canvas id="c" width="900" height="450"></canvas>
+<script type="module">
+import { makePlanetCanvas } from '/js/planetgen.js';
+const put = (id, type) => {
+  const src = makePlanetCanvas(type, 'GM-042-117', 900, 450);
+  document.getElementById(id).getContext('2d').drawImage(src, 0, 0);
+};
+put('a','earthlike'); put('b','gas'); put('c','rocky');
+</script>
+</body></html>

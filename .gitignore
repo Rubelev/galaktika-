@@ -1,14 +1,76 @@
-bin/
-obj/
-publish/win-x64/
+# ============================================================================
+#  .gitignore для «Галактики»
+#  Правило: в репозиторий идёт ИСХОДНЫЙ КОД и данные-справочники.
+#  Всё, что собирается, весит много или содержит секреты — не идёт.
+#  Ориентир: проект на диске 686 МБ, в git должно уйти ~20–25 МБ.
+# ============================================================================
+
+# --- СЕКРЕТЫ: никогда не коммитить ---
+reports/_token.txt
+reports/_token2.txt
+reports/_grant.php
+*.token
+.env
+.env.*
+src/.azure/galaxy/.env
+**/*secret*
+**/*password*
+
+# --- СБОРКА .NET (не коммитим артефакты) ---
+[Bb]in/
+[Oo]bj/
+src/publish/
+*.dll
+*.pdb
+*.exe
+*.nupkg
+project.assets.json
+*.user
+
+# --- PYTHON ---
+__pycache__/
+*.pyc
+
+# --- NODE ---
 node_modules/
-*.zip
-docs/
-tools/
-*.bat
-smoke-test.ps1
-project_dump.md
-project_dump.txt
+*.log
+
+# --- ДАННЫЕ СЕРВЕРА И БЭКАПЫ (живут на сервере, не в git) ---
+deploy-host/backups/
+**/users.json
+**/tokens.json
+**/*.sqlite
+**/*.sqlite-*
+**/*.bak
+**/*.bak[0-9]*
+deploy-host/images-backup-orig/
+
+# --- СКРИНШОТЫ И ВИДЕО: доказательства, а не исходники ---
+# Если нужны в репозитории — только через Git LFS (git lfs track "*.png").
+reports/*.png
+reports/*.gif
+reports/*.mp4
+reports/*.webm
+reports/*.html
+reports/*.json
+# отчёты оставляем — это текст и история
+!reports/*.md
+
+# --- СЛУЖЕБНОЕ ---
+*.tmp
+*.swp
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
+
+# --- ����� �������� � ������ ������� ---
 *.crdownload
 *.lnk
-*.log
+reports/_chrome-profile-*/
+deploy-host/clean-users.json
+deploy-host/site/lib/*_data.php.orig
+
+# --- ��������� ����������� (����������� git) ---
+.tools/
+

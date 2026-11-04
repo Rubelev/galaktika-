@@ -1,18 +1,143 @@
+﻿@* ==========================================================================
+   СВЯЗИ: что править вместе с этим файлом
+   --------------------------------------------------------------------------
+   Список тегов <script> должен совпадать с app-lite/make-static.ps1.
+   Поднимай ?v=N при правке js/*.js — иначе кеш отдаст старую версию.
+   motion.js грузится ПЕРЕД solar.js: solar.js использует window.Motion.
+   ========================================================================== *@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta name="app-build" content="APP_BUILD_PLACEHOLDER">
     <meta name="author" content="Булатов Алексей Юрьевич (Rubelev)" />
     <meta name="copyright" content="© Булатов Алексей Юрьевич, 2026" />
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <base href="/" />
+<script>
+// Страховка: если скрипты не загрузились (кеш, блокировщик, старый браузер) — показываем понятное сообщение
+(function () {
+    window.__booted = false;
+    setTimeout(function () {
+        if (window.__booted) return;
+        var box = document.createElement('div');
+        box.id = 'boot-fail';
+        box.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;'
+            + 'background:#050d18;color:#dce8f7;font:14px/1.5 system-ui,sans-serif;padding:20px;text-align:center';
+        box.innerHTML = '<div style="max-width:min(420px,92vw)">'
+            + '<div style="font-size:20px;font-weight:700;color:#8fd0ff;margin-bottom:10px;">Игра не загрузилась</div>'
+            + '<div style="opacity:.8;margin-bottom:14px;">Похоже, браузер держит старые файлы в кеше '
+            + 'или их блокирует расширение.</div>'
+            + '<button onclick="location.replace(location.pathname + \'?r=\' + Date.now())" '
+            + 'style="padding:12px 20px;border-radius:12px;border:none;background:#2ecc71;color:#04121f;'
+            + 'font-weight:700;font-size:15px;cursor:pointer;">Обновить игру</button>'
+            + '<div style="opacity:.55;margin-top:12px;font-size:12px;">На компьютере: Ctrl+F5. '
+            + 'Если не помогло — отключите блокировщик для этого сайта.</div>'
+            + '</div>';
+        var boots = window.__booted
+            || document.querySelector('#auth-overlay')
+            || document.getElementById('left-menu-items');
+        if (boots) return;
+        document.body.appendChild(box);
+    }, 7000);
+})();
+</script>
+
     <link rel="stylesheet" href="app.css?v=@DateTime.Now.Ticks" />
     <HeadOutlet />
-</head>
+    <script>
+        // Редирект на https: Apache за nginx не видит протокол, поэтому делаем на клиенте.
+        // Только для домена с валидным сертификатом — у .store его пока нет.
+        (function () {
+            if (location.protocol !== 'http:') return;
+            if (!/(^|\.)warbattleuniverse\.com$/i.test(location.hostname)) return;
+            location.replace('https://' + location.host + location.pathname + location.search);
+        })();
+    </script></head>
 <body>
     <Routes />
     <script src="js/lore.js?v=3"></script>
-    <script src="js/solar.js?v=619"></script>
+    <script src="js/errlog.js?v=4"></script>
+    <script src="js/mobile.js?v=1"></script>
+    <script src="js/blocks3d.js?v=3"></script>
+    <script src="js/plans.js?v=1"></script>
+    <script src="js/planetview.js?v=10"></script>
+    <script src="js/descent.js?v=6"></script>
+    <script src="js/design3d.js?v=1"></script>
+    <script src="js/cargo3d.js?v=1"></script>
+    <script src="js/pad3d.js?v=1"></script>
+    <script src="js/buildsite.js?v=1"></script>
+    <script src="js/landmarks.js?v=1"></script>
+    <script src="js/trade.js?v=1"></script>
+    <script src="js/marslandmarks.js?v=1"></script>
+    <script src="js/asteroidbase.js?v=1"></script>
+    <script src="js/onboarding.js?v=9"></script>
+    <script src="js/combat3d.js?v=1"></script>
+    <script src="js/worldcheck.js?v=1"></script>
+    <script src="js/infrastructure.js?v=1"></script>
+    <script src="js/shipmods.js?v=1"></script>
+    <script src="js/amenities.js?v=1"></script>
+    <script src="js/fps.js?v=3"></script>
+    <script src="js/models3d.js?v=3"></script>
+    <script src="js/build3d.js?v=4"></script>
+    <script src="js/errwatch.js?v=1"></script>
+    <script src="js/worldcoords.js?v=1"></script>
+    <script src="js/speedmodel.js?v=1"></script>
+    <script src="js/pv-boot.js?v=2"></script>
+    <script src="js/motion.js?v=7"></script>
+    <script src="js/motion-core.js?v=2"></script>
+    <script src="js/scene-canvas.js?v=2"></script>
+    <script src="js/battle-live.js?v=2"></script>
+    <script src="js/qa.js?v=2"></script>
+    <script src="js/spec.js?v=2"></script>
+    <script src="js/render-stress.js?v=2"></script>
+    <script src="js/perf-probe.js?v=3"></script>
+    <script src="js/no-auto-windows.js?v=4"></script>
+    <script src="js/lore-race.js?v=2"></script>
+    <script src="js/warworld.js?v=2"></script>
+    <script src="js/garage.js?v=2"></script>
+    <script src="js/scene.js?v=1"></script>
+    <script src="js/scene-adapt.js?v=1"></script>
+    <script src="js/scene-model.js?v=7"></script>
+    <script src="js/orbit-kepler.js?v=5"></script>
+    <script src="js/scene-scale.js?v=5"></script>
+    <script src="js/casino-panel.js?v=1"></script>
+    <script src="js/world-event-panel.js?v=1"></script>
+    <script src="js/food-panel.js?v=1"></script>
+    <script src="js/food-factory.js?v=1"></script>
+    <script src="js/food.js?v=1"></script>
+    <script src="js/catalog.js?v=5"></script>
+    <script src="js/catalog-bridge.js?v=5"></script>
+    <script src="js/system-runtime.js?v=2"></script>
+    <script src="js/system-boot.js?v=2"></script>
+    <script src="js/catalog-render.js?v=5"></script>
+    <script src="js/quest-station.js?v=2"></script>
+    <script src="js/jitter-probe.js?v=1"></script>
+    <script src="js/station-tour.js?v=1"></script>
+    <script src="js/ship-card.js?v=1"></script>
+    <script src="js/players-online.js?v=1"></script>
+    <script src="js/build-sync.js?v=6"></script>
+    <script src="js/event-sandbox.js?v=3"></script>
+    <script src="js/solar.js?v=3540"></script>
+    <script src="js/payments.js?v=3"></script>
+    <script src="js/colony.js?v=15"></script>
+    <script src="js/ranks.js?v=2"></script>
+    <script src="js/market.js?v=3"></script>
+    <script src="js/chat.js?v=2"></script>
+    <script src="js/build.js?v=4"></script>
+    <script src="js/abandoned.js?v=2"></script>
+    <script src="js/stats.js?v=1"></script>
+    <script src="js/quests.js?v=2"></script>
+    <script src="js/lease.js?v=4"></script>
+    <script src="js/moons.js?v=1"></script>
+    <script src="js/feedback.js?v=5"></script>
+    <script src="js/mega.js?v=1"></script>
+    <script src="js/social.js?v=2"></script>
+    <script src="js/lang.js?v=3"></script>
+    <script src="js/settings.js?v=2"></script>
+    <script src="js/mentor.js?v=4"></script>
+    <script src="js/reactor.js?v=4"></script>
 </body>
 </html>
 

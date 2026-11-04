@@ -1,7 +1,7 @@
-@page "/"
+﻿@page "/"
 <PageTitle>@GetLocalizedTitle()</PageTitle>
 
-<div id="legend-overlay" class="legend-overlay">
+<div id="legend-overlay" class="legend-overlay" style="display:none;">
     <div class="legend-content">
         <div class="legend-slide" data-slide="1"><div class="slide-year">2226</div><div class="slide-title">Двести лет спустя</div><div class="slide-text">Человечество разделилось на три цивилизации. Три пути. Три взгляда на будущее.</div></div>
         <div class="legend-slide" data-slide="2"><div class="slide-title" style="color:#2ecc71;">🌍 Терра Нова</div><div class="slide-subtitle">Земля • Мегаполис</div><div class="slide-text">Пока другие боролись за воздух и ресурсы, Земля выбрала путь возрождения.</div></div>
@@ -15,10 +15,29 @@
 </div>
 
 <div id="auth-overlay" class="auth-overlay" style="display:none;">
+    <div id="start-lang" style="position:absolute;top:18px;right:18px;display:flex;gap:6px;align-items:center;z-index:5;">
+        <span style="opacity:.55;font-size:12px;margin-right:2px;">Язык</span>
+        <button class="lang-pick" data-lang="ru" style="padding:4px 9px;border-radius:7px;border:1px solid #2c4a6e;background:#101f33;color:#cfe0f5;font:600 12px Inter,system-ui,sans-serif;cursor:pointer;">RU</button>
+        <button class="lang-pick" data-lang="en" style="padding:4px 9px;border-radius:7px;border:1px solid #2c4a6e;background:#101f33;color:#cfe0f5;font:600 12px Inter,system-ui,sans-serif;cursor:pointer;">EN</button>
+        <button class="lang-pick" data-lang="sl" style="padding:4px 9px;border-radius:7px;border:1px solid #2c4a6e;background:#101f33;color:#cfe0f5;font:600 12px Inter,system-ui,sans-serif;cursor:pointer;">SL</button>
+        <button class="lang-pick" data-lang="de" style="padding:4px 9px;border-radius:7px;border:1px solid #2c4a6e;background:#101f33;color:#cfe0f5;font:600 12px Inter,system-ui,sans-serif;cursor:pointer;">DE</button>
+        <button class="lang-pick" data-lang="fr" style="padding:4px 9px;border-radius:7px;border:1px solid #2c4a6e;background:#101f33;color:#cfe0f5;font:600 12px Inter,system-ui,sans-serif;cursor:pointer;">FR</button>
+        <button class="lang-pick" data-lang="zh" style="padding:4px 9px;border-radius:7px;border:1px solid #2c4a6e;background:#101f33;color:#cfe0f5;font:600 12px Inter,system-ui,sans-serif;cursor:pointer;">中文</button>
+    </div>
     <div class="auth-container" id="welcome-screen">
         <h1 class="auth-title">@GetLocalizedWelcome()</h1>
         <button class="btn-large-green" onclick="showRegisterForm()">Зарегистрироваться</button>
         <button class="btn-large-blue" onclick="showLoginForm()">Войти</button>
+        <div style="max-width:460px;margin:18px auto 0;text-align:left;font-size:13px;line-height:1.5;opacity:.85;">
+            <p style="margin:0 0 10px;"><b>Галактика</b> — браузерная космическая стратегия: флот, рынок, колонии на лунах,
+            газовые гиганты и мегапроекты вплоть до кольца Дайсона.</p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;font-size:12px;">
+                <span>1. Добывайте руду и торгуйте</span>
+                <span>2. Постройте корабль</span>
+                <span>3. Оснуйте колонию на луне</span>
+            </div>
+            <p style="margin:10px 0 0;opacity:.7;font-size:12px;">Бесплатно, без доната на старте. Язык переключается кнопками справа.</p>
+        </div>
     </div>
     <div class="auth-container" id="auth-form-login" style="display: none;">
         <h2>Вход в игру</h2>
@@ -29,7 +48,6 @@
     </div>
     <div class="auth-container register-container" id="auth-form-register" style="display: none;">
         <h2>Регистрация</h2>
-        <input type="text" id="reg-name" placeholder="Фамилия Имя" class="auth-input">
         <input type="email" id="reg-email" placeholder="E-mail" class="auth-input">
         <input type="text" id="reg-game" placeholder="Игровое имя" class="auth-input">
         <input type="password" id="reg-password" placeholder="Пароль" class="auth-input">
@@ -77,7 +95,7 @@
 <div id="control-panel-container" style="display:none;">
     <div class="control-panel">
         <div class="datetime-box"><div class="datetime-date" id="live-date"></div><div class="datetime-time" id="live-time"></div><div id="user-info" style="font-size: 16px; font-weight: bold; color: #2ecc71; margin-top: 5px;"></div><div id="user-faction" style="font-size: 12px; color: #8ab4f8; margin-top: 2px;"></div><div class="title">@GetLocalizedTitle()</div><button onclick="logout()" style="margin-top:8px; background:none; border:none; color:#ff6b6b; cursor:pointer; font-size:12px; text-decoration: underline;">Выйти</button></div>
-        <div class="time-control" id="time-control-panel" style="display: none;"><div style="display:flex; gap:4px; margin-bottom:8px;"><button class="mode-btn" data-mode="real" onclick="setTimeMode('real')">1x</button><button class="mode-btn" data-mode="hour" onclick="setTimeMode('hour')">1ч</button><button class="mode-btn" data-mode="day" onclick="setTimeMode('day')">1д</button><button class="mode-btn" data-mode="year" onclick="setTimeMode('year')">1г</button></div><div style="display:flex; gap:6px; align-items:center;"><input type="number" id="time-scale" value="86400" min="0.1" max="31557600" /><button class="action-btn apply-btn" onclick="applyTimeScale()">Применить</button><button class="action-btn reset-btn" onclick="resetToRealTime()">Сейчас</button></div></div>
+        <div class="time-control" id="time-control-panel" style="display: none;"><div style="display:flex; gap:4px; margin-bottom:8px;"><button class="mode-btn" data-mode="real" onclick="setTimeMode('real')">1x</button><button class="mode-btn" data-mode="min" onclick="setTimeMode('min')">1м</button><button class="mode-btn test-only" data-mode="hour" onclick="setTimeMode('hour')">1ч</button><button class="mode-btn test-only" data-mode="day" onclick="setTimeMode('day')">1д</button><button class="mode-btn test-only" data-mode="year" onclick="setTimeMode('year')">1г</button></div><div style="display:flex; gap:6px; align-items:center;"><input type="number" id="time-scale" value="60" min="0.1" max="31557600" /><button class="action-btn apply-btn" onclick="applyTimeScale()">Применить</button><button class="action-btn reset-btn" onclick="resetToRealTime()">Сейчас</button></div></div>
         <div class="nav-controls"><div class="d-pad"><button class="d-btn up" onclick="moveView('up')">▲</button><button class="d-btn left" onclick="moveView('left')">◀</button><button class="d-btn center" onclick="solarReset()">•</button><button class="d-btn right" onclick="moveView('right')">▶</button><button class="d-btn down" onclick="moveView('down')">▼</button></div><div class="zoom-controls"><div class="tilt-row"><input type="range" id="tilt-slider" min="-85" max="85" value="0" oninput="updateTilt(this.value)"></div><div class="zoom-row"><button type="button" class="zoom-btn" onclick="solarZoomOut()">-</button><div class="zoom-btn zoom-text" id="scale-text">1.0x</div><button type="button" class="zoom-btn" onclick="solarZoomIn()">+</button></div></div></div>
     </div>
 </div>
@@ -91,8 +109,6 @@
            страница отдаёт только контейнер, поэтому состав системы может быть любым. *@
     </div>
 </div>
-
-<div style="position: fixed; bottom: 10px; left: 10px; color: rgba(255,255,255,0.3); font-size: 12px; z-index: 10000; pointer-events: none;">© Булатов Алексей Юрьевич, 1973, г. Люберцы</div>
 
 @code {
     // Всю сцену строит solar.js, поэтому координаты планет здесь не считаются.

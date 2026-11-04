@@ -1,0 +1,8 @@
+# Вложения пожеланий: только статика, никакого исполнения
+<FilesMatch "\.(php|phtml|php3|php4|php5|php7|phps|cgi|pl|py|sh|htaccess)$">
+    Require all denied
+</FilesMatch>
+Options -Indexes -ExecCGI
+AddType image/webp .webp
+AddType video/mp4 .mp4
+AddType video/webm .webm

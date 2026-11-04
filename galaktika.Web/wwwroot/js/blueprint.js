@@ -74,6 +74,7 @@ function partList(def) {
     return parts.map(p => `<div class="bp-part"><span>${p[0]}</span><b>${p[1]}</b></div>`).join('');
 }
 
+// авто-вращение модели, если пользователь не трогает мышь
 export function start(canvas, def) {
     stop();
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
@@ -200,3 +201,24 @@ export function start(canvas, def) {
 export function stop() {
     if (state) { state.stop(); state = null; }
 }
+
+
+// АВТО-ВРАЩЕНИЕ МОДЕЛИ КОРАБЛЯ: карточка «оживает», если её не трогают
+(function () {
+    if (typeof window === 'undefined' || window.__autoRotate) return;
+    window.__autoRotate = true;
+    let idleAt = Date.now();
+    ['pointerdown', 'wheel', 'keydown'].forEach(function (ev) {
+        window.addEventListener(ev, function () { idleAt = Date.now(); }, true);
+    });
+    setInterval(function () {
+        const canvas = document.querySelector('#bp-canvas, .blueprint-canvas, #ship-preview canvas');
+        if (!canvas) return;
+        if (Date.now() - idleAt < 2500) return;
+        const ev = new WheelEvent('wheel', { deltaY: 0, bubbles: true });
+        // вращаем через доступный API, если он есть
+        if (window.Blueprint && typeof window.Blueprint.rotate === 'function') window.Blueprint.rotate(0.01);
+        else if (window.Models3D && window.Models3D.rotate) window.Models3D.rotate(0.01);
+        else canvas.dispatchEvent(ev);
+    }, 60);
+})();

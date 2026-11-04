@@ -36,6 +36,42 @@ export function start(canvas, textureUrl, markers, onPick, opts) {
         material.needsUpdate = true;
     });
 
+    // клик по поверхности глобуса: определяем точку и отдаём lat/lon наружу
+    (function surfacePick() {
+        const raycaster = new THREE.Raycaster();
+        const ndc = new THREE.Vector2();
+        let downX = 0, downY = 0, downT = 0;
+        canvas.addEventListener('pointerdown', function (e) { downX = e.clientX; downY = e.clientY; downT = Date.now(); });
+        let dblFlag = false;
+        canvas.addEventListener('dblclick', function (e) {
+            dblFlag = true;
+            const r0 = canvas.getBoundingClientRect();
+            ndc.x = ((e.clientX - r0.left) / r0.width) * 2 - 1;
+            ndc.y = -((e.clientY - r0.top) / r0.height) * 2 + 1;
+            raycaster.setFromCamera(ndc, camera);
+            const hit0 = raycaster.intersectObject(globe, false)[0];
+            if (hit0 && opts && typeof opts.onSurfaceClick === 'function') {
+                const l0 = globe.worldToLocal(hit0.point.clone());
+                opts.onSurfaceClick(Math.asin(Math.max(-1, Math.min(1, l0.y))) * 180 / Math.PI,
+                                    Math.atan2(l0.z, l0.x) * 180 / Math.PI);
+            }
+        });
+        canvas.addEventListener('pointerup', function (e) {
+            if (Date.now() - downT > 400) return;                      // это было вращение
+            if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return;
+            const r = canvas.getBoundingClientRect();
+            ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+            ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+            raycaster.setFromCamera(ndc, camera);
+            const hit = raycaster.intersectObject(globe, false)[0];
+            if (!hit || !opts || typeof opts.onSurfaceClick !== 'function') return;
+            const local = globe.worldToLocal(hit.point.clone());
+            const lat = Math.asin(Math.max(-1, Math.min(1, local.y))) * 180 / Math.PI;
+            const lon = Math.atan2(local.z, local.x) * 180 / Math.PI;
+            setTimeout(function () { if (!dblFlag) opts.onSurfaceClick(lat, lon); dblFlag = false; }, 260);
+        });
+    })();
+
     const globe = new THREE.Mesh(new THREE.SphereGeometry(1, 72, 48), material);
     globe.rotation.y = -Math.PI / 2;
     scene.add(globe);
@@ -168,9 +204,15 @@ export function start(canvas, textureUrl, markers, onPick, opts) {
 
     let zoom = 3.1;
     const onWheel = e => {
+        const prev = zoom;
         zoom = Math.max(2.0, Math.min(5.0, zoom + e.deltaY * 0.0012));
         camera.position.z = zoom;
         if (e.preventDefault) e.preventDefault();
+        // приближение в глобусе упирается в предел — тогда выходим
+        // обратно к виду Солнечной системы
+        if (e.deltaY < 0 && prev <= 2.02 && typeof window.closeGlobe === 'function') {
+            window.closeGlobe();
+        }
     };
     canvas.addEventListener('wheel', onWheel, { passive: false });
 

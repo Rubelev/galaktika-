@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="h" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4fbff"/>
+      <stop offset="0.5" stop-color="#b9def7"/>
+      <stop offset="1" stop-color="#5d8fb5"/>
+    </linearGradient>
+  </defs>
+  <!-- выхлоп -->
+  <path d="M14 25.5 L16 31.5 L18 25.5 Z" fill="#ffb347" opacity="0.95"/>
+  <!-- крылья -->
+  <path d="M11 16 L2.5 24.5 L5.5 27 L12 22.5 Z" fill="#7fb3d8" stroke="#e6f6ff" stroke-width="1.2" stroke-linejoin="round"/>
+  <path d="M21 16 L29.5 24.5 L26.5 27 L20 22.5 Z" fill="#7fb3d8" stroke="#e6f6ff" stroke-width="1.2" stroke-linejoin="round"/>
+  <!-- корпус: острый нос, широкий корпус -->
+  <path d="M16 1.5 L22 14 L21 23 L16 27.5 L11 23 L10 14 Z"
+        fill="url(#h)" stroke="#ffffff" stroke-width="1.4" stroke-linejoin="round"/>
+  <!-- кабина — крупная, видна даже в 20 px -->
+  <path d="M16 8.5 L18.6 13 L16 15.5 L13.4 13 Z" fill="#1a3552" stroke="#dff1ff" stroke-width="0.9"/>
+  <!-- двигатели -->
+  <rect x="12.2" y="22.6" width="2.6" height="3.4" rx="0.8" fill="#ffd27a"/>
+  <rect x="17.2" y="22.6" width="2.6" height="3.4" rx="0.8" fill="#ffd27a"/>
+</svg>

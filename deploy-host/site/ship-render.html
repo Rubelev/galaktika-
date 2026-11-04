@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><title>render</title>
+<style>html,body{margin:0;background:transparent;overflow:hidden} canvas{display:block}</style></head>
+<body>
+<script type="module">
+import * as THREE from '/lib/three/three.module.js';
+await import('/js/models3d.js');
+
+const q = new URLSearchParams(location.search);
+const id = q.get('id') || 'jet_scout';
+const yaw = parseFloat(q.get('yaw') || '0');
+const SIZE = 256;
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setSize(SIZE, SIZE);
+renderer.setClearColor(0x000000, 0);
+renderer.setPixelRatio(2);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const ship = window.Models3D.buildShip(id, THREE);
+scene.add(ship || new THREE.Group());
+
+// поворачиваем и центрируем модель, чтобы кадр не зависел от смещения вокселей
+if (ship) {
+    ship.rotation.y = yaw * Math.PI / 180;
+    const b0 = new THREE.Box3().setFromObject(ship);
+    const c0 = b0.getCenter(new THREE.Vector3());
+    ship.position.x -= c0.x;
+    ship.position.z -= c0.z;
+    ship.position.y -= b0.min.y;
+}
+const box = new THREE.Box3().setFromObject(ship || new THREE.Group());
+const size = box.getSize(new THREE.Vector3());
+const maxD = Math.max(size.x, size.z, size.y, 1);
+
+const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 5000);
+camera.position.set(0, maxD * 2.0, maxD * 1.15);
+camera.lookAt(0, size.y * 0.35, 0);
+
+const key = new THREE.DirectionalLight(0xffffff, 2.4); key.position.set(-maxD, maxD * 2.6, maxD * 1.8); scene.add(key);
+const fill = new THREE.DirectionalLight(0x9fd8ff, 1.0); fill.position.set(maxD * 2, maxD * 1.2, -maxD); scene.add(fill);
+const rim = new THREE.DirectionalLight(0x7fb6ff, 0.8); rim.position.set(0, maxD * 0.4, -maxD * 2); scene.add(rim);
+scene.add(new THREE.AmbientLight(0x5b7d9c, 1.2));
+
+renderer.render(scene, camera);
+document.title = 'ready:' + id + ':' + size.z.toFixed(1);
+</script>
+</body></html>

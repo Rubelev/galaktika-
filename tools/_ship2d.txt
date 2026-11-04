@@ -1,0 +1,207 @@
+// Полёт аппарата в космосе: звёзды, туманность, двигатель, трасса.
+// Открывается двойным кликом по кораблю на карте.
+function openShipFlight2D(index) {
+    const r = TRAFFIC_ROUTES[index];
+    if (!r) return;
+    const ship = SHIPS[r.ship] || { name: 'Аппарат', cls: '', cargo: 0 };
+    const drive = (typeof DRIVES !== 'undefined' && DRIVES[ship.drive]) ? DRIVES[ship.drive] : { name: '—' };
+    const st = r.state || { vx: 0, vy: 0 };
+    const speedKm = Math.round(Math.hypot(st.vx || 0, st.vy || 0) / (typeof SPEED_UNIT === 'number' ? SPEED_UNIT : 7) * 1000);
+    const from = (planetNodes[r.a] && planetNodes[r.a].data && planetNodes[r.a].data.name) || 'станция';
+    const to = (planetNodes[r.b] && planetNodes[r.b].data && planetNodes[r.b].data.name) || 'станция';
+
+    const old = document.getElementById('ship-flight');
+    if (old) old.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'ship-flight';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:100060;display:flex;align-items:center;justify-content:center;' +
+        'background:rgba(2,4,8,.86);padding:14px';
+    modal.innerHTML =
+        '<div style="position:relative;width:min(860px,96vw);border-radius:18px;overflow:hidden;' +
+        'border:1px solid #1e3a5f;background:#04070d">' +
+        '<canvas id="ship-flight-canvas" style="display:block;width:100%;height:auto"></canvas>' +
+        '<div style="position:absolute;left:0;right:0;bottom:0;padding:14px 18px;' +
+        'background:linear-gradient(rgba(4,7,13,0),rgba(4,7,13,.94));color:#dce8f7;' +
+        'font:14px/1.45 Inter,system-ui,sans-serif">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap">' +
+        '<div><b style="color:#8fd6ff;font-size:17px">' + (ship.name || 'Аппарат') + '</b>' +
+        '<div style="opacity:.75;font-size:12.5px">' + (ship.cls || '') + ' · ' + (drive.name || '') + '</div></div>' +
+        '<div style="text-align:right;font-size:12.5px;opacity:.85">' +
+        '<div>маршрут <b style="color:#ffd05a">' + from + ' → ' + to + '</b></div>' +
+        '<div>скорость <b style="color:#3ec97a">' + speedKm + ' км/с</b> · трюм ' + (ship.cargo || '—') + ' т</div>' +
+        '</div></div></div>' +
+        '<button id="sf-close" style="position:absolute;right:10px;top:10px;border:none;border-radius:9px;' +
+        'padding:6px 12px;background:rgba(20,30,46,.85);color:#dce8f7;cursor:pointer;font-size:15px">✕</button>' +
+        '</div>';
+    document.body.appendChild(modal);
+
+    const canvas = document.getElementById('ship-flight-canvas');
+    const ctx = canvas.getContext('2d');
+    const art = new Image();
+    art.src = shipArt(r.ship);
+
+    let W = 860, H = 460;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    function resize() {
+        W = canvas.clientWidth || 860;
+        H = Math.round(W * 0.54);
+        canvas.width = Math.round(W * dpr);
+        canvas.height = Math.round(H * dpr);
+        canvas.style.height = H + 'px';
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    // звёзды: три слоя с разной скоростью — даёт параллакс
+    const stars = [];
+    for (let i = 0; i < 260; i++) {
+        const layer = i % 3;
+        stars.push({
+            x: Math.random() * W, y: Math.random() * H,
+            r: 0.4 + layer * 0.45 + Math.random() * 0.5,
+            v: 12 + layer * 34 + Math.random() * 18,
+            a: 0.35 + layer * 0.2 + Math.random() * 0.3
+        });
+    }
+    // частицы выхлопа
+    const sparks = [];
+    let t = 0, raf = 0, last = performance.now();
+
+    function draw(dt) {
+        t += dt;
+        // фон: глубина космоса
+        const g = ctx.createLinearGradient(0, 0, W, H);
+        g.addColorStop(0, '#05080f');
+        g.addColorStop(0.55, '#070c18');
+        g.addColorStop(1, '#0a0f1e');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+
+        // туманность — два мягких пятна, медленно дышат
+        const neb = ctx.createRadialGradient(W * 0.28, H * 0.3, 10, W * 0.28, H * 0.3, W * 0.5);
+        neb.addColorStop(0, 'rgba(70,110,190,' + (0.10 + 0.03 * Math.sin(t * 0.7)) + ')');
+        neb.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = neb;
+        ctx.fillRect(0, 0, W, H);
+        const neb2 = ctx.createRadialGradient(W * 0.78, H * 0.68, 10, W * 0.78, H * 0.68, W * 0.42);
+        neb2.addColorStop(0, 'rgba(150,90,160,' + (0.07 + 0.02 * Math.cos(t * 0.9)) + ')');
+        neb2.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = neb2;
+        ctx.fillRect(0, 0, W, H);
+
+        // звёзды летят влево — аппарат будто движется вправо
+        stars.forEach(st2 => {
+            st2.x -= st2.v * dt;
+            if (st2.x < -4) { st2.x = W + 4; st2.y = Math.random() * H; }
+            ctx.globalAlpha = st2.a;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(st2.x, st2.y, st2.r, 0, Math.PI * 2);
+            ctx.fill();
+            // штрих скорости у ближних
+            if (st2.v > 40) {
+                ctx.globalAlpha = st2.a * 0.5;
+                ctx.strokeStyle = '#cfe0ff';
+                ctx.lineWidth = st2.r * 0.8;
+                ctx.beginPath();
+                ctx.moveTo(st2.x, st2.y);
+                ctx.lineTo(st2.x + st2.v * dt * 2.2, st2.y);
+                ctx.stroke();
+            }
+        });
+        ctx.globalAlpha = 1;
+
+        // дальняя планета снизу
+        const pr = W * 0.34;
+        const pg = ctx.createRadialGradient(W * 0.18, H + pr * 0.55, pr * 0.2, W * 0.18, H + pr * 0.55, pr);
+        pg.addColorStop(0, 'rgba(120,165,225,0.85)');
+        pg.addColorStop(0.55, 'rgba(40,78,140,0.8)');
+        pg.addColorStop(1, 'rgba(4,8,16,0)');
+        ctx.fillStyle = pg;
+        ctx.beginPath();
+        ctx.arc(W * 0.18, H + pr * 0.55, pr, 0, Math.PI * 2);
+        ctx.fill();
+
+        // аппарат
+        const cx = W * 0.56, cy = H * 0.44 + Math.sin(t * 1.6) * 4;
+        const size = Math.min(190, W * 0.24);
+        // свечение двигателя
+        const glowR = size * 0.55;
+        const eg = ctx.createRadialGradient(cx - size * 0.42, cy, 2, cx - size * 0.42, cy, glowR);
+        eg.addColorStop(0, 'rgba(120,200,255,0.55)');
+        eg.addColorStop(0.4, 'rgba(70,140,255,0.18)');
+        eg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = eg;
+        ctx.beginPath();
+        ctx.arc(cx - size * 0.42, cy, glowR, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (art.complete && art.naturalWidth) {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(Math.PI / 2 + Math.sin(t * 0.8) * 0.03);   // «носом вправо» + лёгкий крен
+            const scale = size / Math.max(art.naturalWidth, art.naturalHeight);
+            ctx.drawImage(art, -art.naturalWidth * scale / 2, -art.naturalHeight * scale / 2,
+                art.naturalWidth * scale, art.naturalHeight * scale);
+            ctx.restore();
+        } else {
+            ctx.fillStyle = 'rgba(140,180,220,0.6)';
+            ctx.beginPath();
+            ctx.ellipse(cx, cy, size * 0.3, size * 0.12, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // штрихи скорости: короткие линии позади аппарата
+        ctx.strokeStyle = 'rgba(150,190,255,0.20)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 12; i++) {
+            const sy = cy - size * 0.45 + (i / 11) * size * 0.9;
+            const off = ((t * 260 + i * 61) % (W * 0.9));
+            const sx = cx - size * 0.5 - off;
+            if (sx < -40) continue;
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(sx + 34, sy);
+            ctx.stroke();
+        }
+
+        // частицы выхлопа
+        if (Math.random() < 0.85) {
+            sparks.push({
+                x: cx - size * 0.44, y: cy + (Math.random() - 0.5) * size * 0.12,
+                vx: -80 - Math.random() * 120, vy: (Math.random() - 0.5) * 26,
+                life: 0.5 + Math.random() * 0.5, max: 1, r: 0.8 + Math.random() * 1.6
+            });
+        }
+        for (let i = sparks.length - 1; i >= 0; i--) {
+            const p = sparks[i];
+            p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
+            if (p.life <= 0) { sparks.splice(i, 1); continue; }
+            ctx.globalAlpha = Math.max(0, p.life);
+            ctx.fillStyle = i % 3 === 0 ? '#9fd8ff' : '#4f8ef7';
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    function loop(now) {
+        raf = requestAnimationFrame(loop);
+        const dt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        draw(dt);
+    }
+    raf = requestAnimationFrame(loop);
+
+    const close = () => {
+        cancelAnimationFrame(raf);
+        window.removeEventListener('resize', resize);
+        modal.remove();
+    };
+    document.getElementById('sf-close').onclick = close;
+    modal.onclick = (e) => { if (e.target === modal) close(); };
+}
+

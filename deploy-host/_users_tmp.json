@@ -1,0 +1,26 @@
+[
+  {
+    "Email": "ab@btema.ru",
+    "Salt": "G/4E65X0McgqW18IQaw8Ng==",
+    "Hash": "BAuQWcXEd0aXyPGhJEs53TXtc4bNb1snDMm5r6miwz8=",
+    "Profile": "{\"lastName\":\"Булатов Алексей Юрьевич\",\"gameName\":\"Rubelev\",\"faction\":\"earth\",\"lastSeen\":1793194617,\"achievements\":[]}",
+    "Role": "admin",
+    "Created": "2026-10-26T15:22:31.3250705Z"
+  },
+  {
+    "Email": "agent@warbattleuniverse.com",
+    "Salt": "+7W70vlKK18ub947p6Yi9g==",
+    "Hash": "ayrCx7Fs5Ev+TaCPoXXNODSd8DUhKA7OMXMopFAutpM=",
+    "Profile": "{\"lastName\":\"\",\"gameName\":\"Автопилот\",\"faction\":\"earth\",\"credits\":57863.64143241723,\"hasSeenLegend\":false,\"lastSeen\":1793194592,\"dockSlots\":3,\"workshops\":0,\"resources\":{\"steel\":0,\"copper\":40,\"nickel\":20,\"silver\":4,\"gold\":2,\"chips\":16,\"boards\":18,\"manip\":4,\"grain\":66834,\"water\":507.7264923433297,\"eternity\":58},\"quests\":{\"sold\":1793154069,\"chat\":1793154069,\"rent\":1793154069,\"ship\":1793154070,\"colony\":1793157708,\"hire\":1793162034},\"questReward\":20000,\"buildQueue\":[],\"achievements\":{\"first_colony\":1793157716,\"settlers_1k\":1793162053},\"ships\":[{\"id\":\"jet_scout\",\"builtAt\":1793157708}],\"colony\":{\"world\":\"kepler\",\"name\":\"Новый Кеплер\",\"stage\":\"moon\",\"founded\":1793157708,\"lastTick\":1793194435,\"population\":8479.613842467596,\"happiness\":0.018358796296296297,\"taxRate\":0.1,\"taxCollected\":5400331.855125184,\"daysLived\":30.02174778518519,\"defense\":0,\"raids\":0,\"lastRaid\":1793157708,\"nextRaidIn\":46800,\"lastReport\":null,\"state\":\"active\",\"peak\":8479.38125691607},\"feedbackAccepted\":[{\"text\":\"Хочу видеть рейтинг игроков и таблицу лидеров по населению.\",\"at\":1793158218,\"reward\":15},{\"text\":\"Хочу видеть расход энергии колонии и подсказку по налогам.\",\"at\":1793174805,\"reward\":10},{\"text\":\"Предлагаю корабль «Корсар»: корпус 120, щит 50, трюм 200, ход 3, цена 60 000 кр.\",\"at\":1793174805,\"reward\":20}],\"refCode\":\"7397c7cc\",\"refClaimed\":[\"invited@test.ru\"],\"referrals\":1,\"colonists\":{\"earth\":4300,\"mars\":0,\"astral\":0},\"colonistsTotal\":4300}",
+    "Role": "user",
+    "Created": "2026-10-28T02:21:09+00:00"
+  },
+  {
+    "Email": "trader@warbattleuniverse.com",
+    "Salt": "uSnBwMbT/ncilJI3hJsxlw==",
+    "Hash": "f4zkEhVVT7On5R7iAKesEEQmXAyg8F0ydJ5+ySxYbfM=",
+    "Profile": "{\"lastName\":\"\",\"gameName\":\"Караванщик\",\"faction\":\"mars\",\"credits\":78415.24774833336,\"hasSeenLegend\":false,\"lastSeen\":1793194592,\"dockSlots\":3,\"workshops\":0,\"resources\":{\"steel\":20,\"copper\":4,\"nickel\":2,\"silver\":1,\"gold\":1,\"chips\":2,\"boards\":2,\"manip\":1,\"grain\":0,\"water\":0},\"quests\":{\"sold\":1793158414,\"chat\":1793158414,\"rent\":1793158414,\"ship\":1793158414},\"questReward\":30000,\"buildQueue\":[],\"achievements\":[],\"ships\":[{\"id\":\"jet_scout\",\"builtAt\":1793162035},{\"id\":\"ion_corsair\",\"builtAt\":1793176435}],\"contracts\":{\"wholesale\":1795786579}}",
+    "Role": "user",
+    "Created": "2026-10-28T03:33:34+00:00"
+  }
+]

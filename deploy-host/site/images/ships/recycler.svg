@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="recycler-hull" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b3f60"/>
+      <stop offset="0.6" stop-color="#1b2b45"/>
+      <stop offset="1" stop-color="#16233a"/>
+    </linearGradient>
+    <linearGradient id="recycler-drum" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#31486d"/>
+      <stop offset="1" stop-color="#101b2d"/>
+    </linearGradient>
+    <linearGradient id="recycler-ore" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffe066"/>
+      <stop offset="1" stop-color="#c99a12"/>
+    </linearGradient>
+    <linearGradient id="recycler-flame" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f1c40f" stop-opacity="0"/>
+      <stop offset="1" stop-color="#f1c40f" stop-opacity="0.95"/>
+    </linearGradient>
+    <filter id="recycler-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="1.8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#recycler-glow)" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="9" y="43" width="7" height="14" fill="#16233a" stroke="#8ab4f8" stroke-width="2"/>
+    <polygon points="9,44 1,50 9,56" fill="url(#recycler-flame)"/>
+    <path d="M16,36 L50,36 L58,42 L62,50 L58,58 L50,64 L16,64 Z" fill="url(#recycler-hull)" stroke="#8ab4f8" stroke-width="2.5"/>
+    <path d="M20,41 L46,41" stroke="#00e5ff" stroke-width="1.6" opacity="0.5"/>
+    <path d="M20,59 L46,59" stroke="#8ab4f8" stroke-width="1.5" opacity="0.35"/>
+    <rect x="22" y="46" width="14" height="12" rx="1" fill="none" stroke="#8ab4f8" stroke-width="1.5" opacity="0.5"/>
+    <line x1="84.5" y1="50" x2="90.5" y2="50" stroke="#8ab4f8" stroke-width="5"/>
+    <line x1="77.3" y1="62.6" x2="80.3" y2="67.8" stroke="#8ab4f8" stroke-width="5"/>
+    <line x1="62.7" y1="62.6" x2="59.7" y2="67.8" stroke="#8ab4f8" stroke-width="5"/>
+    <line x1="77.3" y1="37.4" x2="80.3" y2="32.2" stroke="#8ab4f8" stroke-width="5"/>
+    <line x1="62.7" y1="37.4" x2="59.7" y2="32.2" stroke="#8ab4f8" stroke-width="5"/>
+    <circle cx="70" cy="50" r="15" fill="url(#recycler-drum)" stroke="#8ab4f8" stroke-width="3"/>
+    <line x1="76.1" y1="53.5" x2="82.1" y2="57" stroke="#8ab4f8" stroke-width="2" opacity="0.8"/>
+    <line x1="63.9" y1="53.5" x2="57.9" y2="57" stroke="#8ab4f8" stroke-width="2" opacity="0.8"/>
+    <line x1="70" y1="56.5" x2="70" y2="63" stroke="#8ab4f8" stroke-width="2" opacity="0.8"/>
+    <circle cx="70" cy="50" r="6.5" fill="#07111f" stroke="#00e5ff" stroke-width="2"/>
+    <circle cx="70" cy="50" r="1.8" fill="#00e5ff"/>
+    <path d="M42,46 L47,50 L42,54" fill="none" stroke="#00e5ff" stroke-width="2" opacity="0.7"/>
+    <circle cx="27" cy="36" r="4" fill="#1b2b45" stroke="#8ab4f8" stroke-width="2"/>
+    <path d="M27,36 L20,27 L28,21" fill="none" stroke="#16233a" stroke-width="7"/>
+    <path d="M27,36 L20,27 L28,21" fill="none" stroke="#8ab4f8" stroke-width="3"/>
+    <path d="M28,21 L21,13" fill="none" stroke="#8ab4f8" stroke-width="3"/>
+    <path d="M28,21 L35,13" fill="none" stroke="#8ab4f8" stroke-width="3"/>
+    <polygon points="28,5 33,7.5 33,12.5 28,15 23,12.5 23,7.5" fill="url(#recycler-ore)" stroke="#f1c40f" stroke-width="1.5"/>
+    <path d="M28,7 L28,13" fill="none" stroke="#b8860b" stroke-width="1.2" opacity="0.6"/>
+  </g>
+</svg>

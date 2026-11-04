@@ -1,3 +1,15 @@
+/* ==========================================================================
+   СВЯЗИ: что править вместе с этим файлом
+   --------------------------------------------------------------------------
+   Стили маркеров и сцены. При правке классов/размеров проверь:
+   1) js/solar.js — там же задаются transform/left/top маркеров.
+   2) js/motion.js — поза борта (угол, прозрачность стоянки).
+   3) Правило 23 из AGENTS.md: проверять вид в двух ракурсах (?tilt=0 и ?tilt=45).
+   ========================================================================== */
+
+/* Шрифты: латиница, кириллица, китайский */
+body { font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Hiragino Sans GB", system-ui, sans-serif; }
+
 body, html { background-color: #000 !important; margin: 0; padding: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
 .page { display: block !important; } .sidebar { display: none !important; } .top-row { display: none !important; } .content { padding: 0 !important; margin: 0 !important; width: 100vw !important; height: 100vh !important; overflow: hidden; }
 
@@ -59,7 +71,7 @@ body, html { background-color: #000 !important; margin: 0; padding: 0; overflow:
 .resources-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
 .resource-item { display: flex; align-items: center; background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); }
 .resource-icon { font-size: 24px; margin-right: 12px; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; }
-.res-icon { width: 28px; height: 28px; display: block; } .resource-details { display: flex; flex-direction: column; }
+.res-icon { width: 22px; height: 22px; display: block; } .resource-details { display: flex; flex-direction: column; }
 .resource-name { font-size: 12px; color: #8ab4f8; } .resource-amount { font-size: 16px; font-weight: bold; color: #fff; } .resource-unit { font-size: 11px; color: #888; font-weight: normal; }
 
 /* МОДАЛКИ */
@@ -165,7 +177,7 @@ button.zoom-btn { cursor: pointer; } button.zoom-btn:hover { background: rgba(59
 
 .orbit { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 50%; transform-style: preserve-3d; }
 .planet-wrapper { position: absolute; top: 50%; left: 50%; width: 0; height: 0; transform-style: preserve-3d; }
-.planet { position: absolute; top: 0; left: 0; transform: translate(-50%, -50%); border-radius: 50%; z-index: 2; transform-style: preserve-3d; }
+.planet { position: absolute; top: 0; left: 0; transform: translate(-50%, -50%); border-radius: 50%; z-index: 8; transform-style: preserve-3d; }
 .planet-surface { position: absolute; inset: 0; border-radius: 50%; background-size: 200% 100%; background-repeat: repeat-x; background-position: 0% center; transform: rotateZ(calc(-1 * var(--rot-z, 0deg))) rotateX(calc(-1 * var(--rot-x, 0deg))); filter: brightness(1.22) contrast(1.05); }
 .planet-shadow { position: absolute; inset: 0; border-radius: 50%; z-index: 3; pointer-events: none; transform: rotateZ(calc(-1 * var(--rot-z, 0deg))) rotateX(calc(-1 * var(--rot-x, 0deg))); }
 .earth .planet-surface { background-color: #1565c0; background-image: url("/images/earth.webp"); }
@@ -364,17 +376,22 @@ button.zoom-btn { cursor: pointer; } button.zoom-btn:hover { background: rgba(59
 .ship-shop { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
 
 /* ============ СТАНЦИИ, ЛИФТЫ, ТРАФИК ============ */
-.station { position: absolute; left: 50%; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; transform: translate(9px, -9px); z-index: 4; pointer-events: none; }
-.station-core { position: absolute; inset: 1px; border-radius: 50%; border: 1px solid rgba(138, 180, 248, 0.85); box-shadow: 0 0 8px rgba(138, 180, 248, 0.55); background: rgba(20, 35, 60, 0.6); }
-.station::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; border: 1px dashed rgba(138, 180, 248, 0.35); }
+.station { position: absolute; left: 50%; top: 50%; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; transform: translate(8px, -8px); z-index: 4; pointer-events: none; }
+.station-core { position: absolute; inset: 1px; border-radius: 50%; border: 1px solid rgba(138, 180, 248, 0.9); box-shadow: 0 0 5px rgba(138, 180, 248, 0.45); background: transparent; }
+.station::after { content: ''; position: absolute; inset: -2px; border-radius: 50%; border: 1px dashed rgba(138, 180, 248, 0.28); }
 @keyframes stationSpin { to { transform: rotate(360deg); } }
 .tether { position: absolute; left: 50%; top: 50%; width: 15px; height: 1px; transform-origin: 0 50%; transform: rotate(-45deg); background: linear-gradient(90deg, rgba(138,180,248,0.05), rgba(138,180,248,0.6)); z-index: 3; pointer-events: none; }
 .tether::after { content: ''; position: absolute; right: 0; top: -1px; width: 3px; height: 3px; border-radius: 50%; background: #cfe0ff; box-shadow: 0 0 6px #8ab4f8; animation: liftRun 240s linear infinite; }
 @keyframes liftRun { 0% { transform: translateX(-13px); opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { transform: translateX(0); opacity: 0; } }
 .fleet-layer { position: absolute; left: 50%; top: 50%; width: 0; height: 0; z-index: 6; pointer-events: none; }
-.traffic-ship { position: absolute; left: 0; top: 0; width: 13px; height: 13px; will-change: transform, opacity; }
-.traffic-ship img { width: 13px; height: 13px; display: block; filter: drop-shadow(0 0 6px rgba(90, 160, 255, 0.55)); }
-.traffic-ship .wake { position: absolute; right: 100%; top: 50%; width: 14px; height: 1.5px; margin-top: -1px; border-radius: 2px; background: linear-gradient(270deg, rgba(138, 180, 248, 0.55), transparent); }
+.traffic-ship { position: absolute; left: 0; top: 0; width: 15px; height: 15px; will-change: transform, opacity;
+    pointer-events: auto; cursor: pointer; }
+.traffic-ship img { width: 15px; height: 15px; display: block;
+    filter: drop-shadow(0 0 3px rgba(90, 160, 255, 0.4)); }
+/* след короткий и тусклый, иначе корабль читается «головастиком» */
+.traffic-ship .wake { position: absolute; right: 100%; top: 50%; width: 7px; height: 1px; margin-top: -0.5px;
+    border-radius: 2px; opacity: .35;
+    background: linear-gradient(270deg, rgba(138, 180, 248, 0.5), transparent); }
 
 /* ============ 3D-ПОДИУМ И ДОК ============ */
 .ship-stage { position: relative; width: 66px; height: 66px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; perspective: 420px; cursor: pointer; animation: stageFloat 5.5s ease-in-out infinite; }
@@ -714,11 +731,6 @@ body.hide-stations .station-label { display: none !important; }
 .globe-tip.pinned { border-color: #ffd479; box-shadow: 0 0 14px rgba(255,212,121,0.35); color: #fff3d6; }
 
 .fleet-dots { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
-.fleet-dot { position: absolute; width: 0; height: 0; transform: translate(-50%, -50%);
-    border-left: 4px solid transparent; border-right: 4px solid transparent;
-    border-bottom: 7px solid #7fe3a8; opacity: 0.85; }
-.fleet-dot[data-side="pirate"] { border-bottom-color: #ff6b6b; opacity: 0.95; }
-
 .tut-kicker { font-size: 10px; letter-spacing: 1.4px; color: #7fe3ff; text-transform: uppercase; margin-bottom: 10px; }
 .tut-title { margin: 0 0 10px; font-size: 20px; font-weight: 400; color: #e8f1ff; }
 .tut-text { font-size: 13px; line-height: 1.7; color: #a9b6c9; margin-bottom: 18px; }
@@ -742,3 +754,531 @@ body.hide-stations .station-label { display: none !important; }
 .enc-icon { font-size: 18px; margin-bottom: 6px; }
 .enc-title { font-size: 13px; color: #e8f1ff; margin-bottom: 6px; }
 .enc-line { font-size: 11px; color: #8fa0b8; line-height: 1.55; }
+/* Ускоренное время — только в тестовом режиме (?test=1) */
+.test-only { display: none !important; }
+body.test-mode .test-only { display: inline-block !important; }
+
+/* ---------- восстановлено после перезаписи CSS ---------- */
+html, body { overscroll-behavior: none; }
+
+.moon.irregular {
+    /* Фобос и Деймос — не шары: контур задаётся clip-path из solar.js */
+    background-size: 180% 100%;
+    box-shadow: none;
+    filter: drop-shadow(0 0 2px rgba(0,0,0,.55));
+}
+
+.traffic-ship { pointer-events: auto; cursor: pointer; }
+
+/* Ускоренное время — только в тестовом режиме (?test=1) */
+.test-only { display: none !important; }
+body.test-mode .test-only { display: inline-block !important; }
+
+/* станция на луне: маленький синий маркер рядом со спутником */
+.moon-station {
+    position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; z-index: 5;
+    margin: -2px 0 0 -2px; transform: translate(4px, -4px);
+    border-radius: 50%; pointer-events: none;
+    border: 1px solid rgba(138, 180, 248, 0.85);
+    background: transparent;
+    box-shadow: 0 0 4px rgba(138, 180, 248, 0.55);
+}
+.moon-station::after {
+    content: ''; position: absolute; inset: -2px; border-radius: 50%;
+    border: 1px dashed rgba(138, 180, 248, 0.22);
+}
+
+/* кнопка перехода с глобуса на планетарный вид */
+.globe-surface-btn {
+    position: absolute; right: 16px; bottom: 54px; z-index: 3;
+    padding: 9px 16px; border: none; border-radius: 10px; cursor: pointer;
+    font: 800 13px Inter, system-ui, sans-serif;
+    background: linear-gradient(#8fd6ff, #2f9fe0); color: #04223a;
+    box-shadow: 0 4px 16px rgba(47, 159, 224, .35);
+}
+.globe-surface-btn:hover { filter: brightness(1.08); }
+
+/* ---------- меню игры: группы разделов ---------- */
+.left-menu { width: 272px; max-width: 82vw; }
+#left-menu-items {
+    display: flex; flex-direction: column; gap: 4px;
+    width: 100%; align-items: stretch;
+}
+.menu-sec-body {
+    display: flex; flex-direction: column; gap: 4px;
+    width: 100%; overflow: hidden;
+}
+.menu-sec-body.menu-collapsed { display: none; }
+.menu-sec-mark {
+    display: inline-block; width: 11px; color: #7fe3ff; font-size: 9px;
+}
+.menu-sec-title {
+    display: flex; align-items: center; gap: 2px;
+    cursor: pointer; user-select: none;
+    font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase;
+    color: #5d6a7d; margin: 10px 0 4px; padding: 2px 0;
+}
+.menu-sec-title:hover { color: #8fd6ff; }
+.menu-btn {
+    width: 100%; box-sizing: border-box;
+    display: flex; align-items: center; gap: 6px;
+    min-height: 32px; padding: 6px 12px;
+    font-size: 13px; line-height: 18px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 9px; color: #dce8f7; cursor: pointer;
+    text-align: left; transition: background .15s, border-color .15s;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.menu-btn:hover { background: rgba(59,130,246,0.32); border-color: rgba(127,227,255,0.45); }
+
+/* кривые траектории торговых кораблей */
+.traffic-paths {
+    position: absolute; left: 0; top: 0; width: 1px; height: 1px;
+    overflow: visible; pointer-events: none; z-index: 1;
+}
+.traffic-path {
+    fill: none;
+    stroke: rgba(127, 227, 255, 0.55);
+    stroke-width: 1;
+    stroke-dasharray: 5 7;
+    stroke-linecap: round;
+    opacity: 0;
+    transition: opacity .35s linear;
+    animation: trafficDash 2.2s linear infinite;
+}
+@keyframes trafficDash { to { stroke-dashoffset: -24; } }
+
+/* все борта на карте — одинаковый треугольник, нос по курсу */
+/* транспорт: тот же треугольник, чуть крупнее и кликабельный */
+
+/* ---------- борта на карте: спрайты кораблей ---------- */
+/* Раньше борта рисовались треугольниками, а транспорт — картинками.
+   Теперь у всех один способ отрисовки: маленький спрайт корабля,
+   повёрнутый по курсу. Размер и свечение одинаковые. */
+.ship-marker {
+    width: 22px; height: 22px; position: absolute;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    transform: translate(-50%, -50%);
+    will-change: transform, left, top;
+    pointer-events: auto;
+    cursor: help;
+    filter: drop-shadow(0 0 4px rgba(127, 227, 255, .55)) brightness(1.25);
+    transition: opacity .25s linear;
+}
+.ship-marker--traffic {
+    width: 11px; height: 11px;
+    filter: drop-shadow(0 0 3px rgba(143, 214, 255, .45)) brightness(1.15);
+}
+
+/* Солнце: без этого правила светило рисовалось квадратом (правило потерялось
+   при чистке CSS). Радиальный градиент + жёсткий круг + мягкое свечение. */
+.sun {
+    width: 84px; height: 84px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 28%, #fffde7 0%, #ffd54f 22%, #ff9800 62%, #e64a19 92%);
+    box-shadow: 0 0 30px rgba(255, 152, 0, .85), 0 0 72px rgba(255, 87, 34, .55);
+    position: absolute; z-index: 10; top: 50%; left: 50%;
+    /* Солнце должно оставаться шаром: гасим наклон и поворот сцены,
+       иначе на наклонной карте диск превращается в плоский блин. */
+    transform: translate(-50%, -50%)
+               rotateZ(calc(-1 * var(--rot-z, 0deg)))
+               rotateX(calc(-1 * var(--rot-x, 0deg)));
+    will-change: transform;
+}
+.sun .tooltip { position: absolute; left: 50%; top: 110%; transform: translateX(-50%); }
+
+/* Меню: строки не должны налезать друг на друга, а карточка обучения —
+   прятаться под колонкой. */
+#left-menu-items { display: flex; flex-direction: column; gap: 6px; width: 300px; max-width: 46vw; }
+.menu-btn {
+    min-height: 32px; height: auto;
+    line-height: 1.4; white-space: normal;
+    overflow: visible; text-overflow: clip;
+}
+#onb-card { z-index: 20000 !important; left: 288px !important; }
+
+
+/* хвост двигателя: показывает направление движения борта */
+.ship-marker::after,
+.ship-marker--fleet::after,
+.trade-ship::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: -16px;                 /* хвост позади носа, а не впереди */
+    width: 8px;
+    height: 16px;
+    margin-left: -4px;
+    border-radius: 4px;
+    background: linear-gradient(0deg, rgba(127, 227, 255, 0.9), rgba(127, 227, 255, 0));
+    filter: blur(1px);
+    pointer-events: none;
+    animation: fleetTrail 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes fleetTrail {
+    from { opacity: 0.45; height: 12px; }
+    to   { opacity: 0.95; height: 18px; }
+}
+
+
+/* объём: лёгкая тень под бортом, чтобы спрайт не выглядел наклейкой */
+.ship-marker {
+    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55));
+}
+/* fleet ship shadow */
+
+
+/* Солнце: подпись не должна рисовать тёмный квадрат поверх диска */
+.sun .tooltip {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+}
+.sun:hover .tooltip {
+    opacity: 1;
+}
+
+
+/* Тёмный квадрат вокруг Солнца: подпись внутри диска.
+   Прячем её полностью, показываем только при наведении. */
+.sun > .tooltip,
+.sun .tooltip {
+    display: none !important;
+}
+.sun:hover > .tooltip,
+.sun:hover .tooltip {
+    display: block !important;
+    opacity: 1 !important;
+}
+
+
+/* хвост одинаковый у всех бортов: и флот, и торговцы, и гражданские */
+.trade-ship::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: -16px;                 /* хвост позади носа, а не впереди */
+    width: 8px;
+    height: 16px;
+    margin-left: -4px;
+    border-radius: 4px;
+    background: linear-gradient(0deg, rgba(127, 227, 255, 0.9), rgba(127, 227, 255, 0));
+    filter: blur(1px);
+    pointer-events: none;
+    animation: fleetTrail 0.9s ease-in-out infinite alternate;
+}
+
+
+/* ускорения времени убраны: игра идёт в реальном масштабе 1:1 */
+#time-scale,
+.mode-btn[data-mode="min"] {
+    display: none !important;
+}
+.mode-btn[data-mode="real"] {
+    display: inline-flex !important;
+}
+.mode-btn[data-mode="hour"],
+.mode-btn[data-mode="day"],
+.mode-btn[data-mode="year"] {
+    display: none !important;
+}
+
+
+/* На орбите (погрузка/разгрузка/ожидание) хвост выключен */
+.ship-marker[data-moving="0"]::after,
+.trade-ship[data-moving="0"]::after {
+    display: none;
+}
+
+
+/* тень на «полу» под бортом: читается высота над плоскостью орбит */
+.ship-marker::before,
+.trade-ship::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 14px;
+    height: 5px;
+    margin-left: -7px;
+    margin-top: 4px;
+    border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0));
+    pointer-events: none;
+}
+
+
+/* Планеты не должны теряться среди звёзд: минимальный визуальный размер */
+.planet {
+    transform: translate(-50%, -50%) scale(1.5);
+    box-shadow: 0 0 10px rgba(140, 190, 255, 0.25);
+}
+.moon {
+    transform: translate(-50%, -50%) scale(1.15);
+}
+/* планеты не теряются среди звёзд */
+
+
+/* Солнце: диск строго круглый, никакие вложенные элементы не рисуют квадрат */
+.sun {
+    border-radius: 50% !important;
+    overflow: hidden;
+    background-clip: padding-box;
+}
+
+
+/* Гравитационные лифты: бегущие штрихи от планеты к луне */
+.elevator {
+    animation: elevatorFlow 2.4s linear infinite;
+}
+@keyframes elevatorFlow {
+    from { stroke-dashoffset: 0; }
+    to   { stroke-dashoffset: -18; }
+}
+.elevator.spaceport {
+    stroke-width: 1.8;
+    stroke-opacity: 0.85;
+}
+/* Космопорт (Луна, Фобос): заметное кольцо */
+.spaceport-moon {
+    outline: 1px dashed rgba(200, 235, 255, 0.75);
+    outline-offset: 2px;
+}
+
+
+/* ПЛАНЕТАРНЫЙ ВИД: панели вселенной не должны висеть поверх поверхности */
+body.pv-mode #left-menu,
+body.pv-mode #resources-panel,
+body.pv-mode #control-panel-container,
+body.pv-mode #time-control-panel,
+body.pv-mode #chat-panel,
+body.pv-mode #system-menu,
+body.pv-mode #bottom-bar {
+    display: none !important;
+}
+/* панель управления планетарным видом — выше 3D-слоя (9850) */
+#pv-bar {
+    z-index: 9960 !important;
+}
+
+
+/* фильтр: скрыть маршруты флота (пунктир), борта остаются */
+body.hide-fleet-routes .trade-paths,
+body.hide-fleet-routes .trade-path,
+body.hide-fleet-routes .traffic-paths,
+body.hide-fleet-routes .traffic-path,
+body.hide-fleet-routes .route-line {
+    display: none !important;
+}
+
+
+/* фильтр флота: подгруппы */
+.fleet-filter { flex-wrap: wrap; }
+.fleet-filter .flt-expand {
+    background: none; border: none; color: #8ab4f8; cursor: pointer; font-size: 13px;
+    padding: 0 4px;
+}
+.fleet-filter .flt-sub {
+    display: flex; flex-direction: column; gap: 2px;
+    margin: 4px 0 0 18px; font-size: 12px;
+}
+body.hide-flt-own .ship-marker[data-role="own"],
+body.hide-flt-npc .ship-marker[data-role="trade"],
+body.hide-flt-npc .ship-marker[data-role="freight"],
+body.hide-flt-npc .ship-marker[data-role="fighter"],
+body.hide-flt-trade .ship-marker[data-role="trade"],
+body.hide-flt-freight .ship-marker[data-role="freight"],
+body.hide-flt-fighter .ship-marker[data-role="fighter"] {
+    display: none !important;
+}
+
+
+/* Клик по планете важнее клика по кораблю: планета выше слоя флота,
+   а невидимая область на 6 px расширяет зону попадания. */
+.planet::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+}
+.moon { z-index: 7; }
+
+
+/* Панель фильтров: не обрезаем переключатели, разрешаем прокрутку */
+.view-panel {
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+.view-panel .station-toggle-row { margin-top: 6px; }
+
+
+/* Общий план: корабли в реальном масштабе не видны — прячем до приближения */
+body.ships-hidden .ship-marker {
+    display: none !important;
+}
+
+
+/* Обратный масштаб: станции и трафик не раздуваются при зуме */
+.station {
+    width: calc(7px * var(--inv-scale, 1));
+    height: calc(7px * var(--inv-scale, 1));
+    margin: calc(-3.5px * var(--inv-scale, 1)) 0 0 calc(-3.5px * var(--inv-scale, 1));
+}
+.tether { width: calc(15px * var(--inv-scale, 1)); }
+.traffic-ship,
+.traffic-ship img { width: calc(15px * var(--inv-scale, 1)) !important; height: calc(15px * var(--inv-scale, 1)) !important; }
+/* и базовый маркер не должен расти вместе с зумом, если инлайн-размер не задан */
+.ship-marker { width: calc(10px * var(--inv-scale, 1)); height: calc(10px * var(--inv-scale, 1)); }
+.ship-marker--traffic {
+    width: calc(11px * var(--inv-scale, 1)) !important;
+    height: calc(11px * var(--inv-scale, 1)) !important;
+}
+
+
+/* Портал — элемент интерфейса сцены: не раздувается вместе с зумом */
+.portal,
+.portal-ring.outer {
+    width: calc(120px * var(--inv-scale, 1));
+    height: calc(120px * var(--inv-scale, 1));
+}
+.portal-ring.inner { width: calc(84px * var(--inv-scale, 1)); height: calc(84px * var(--inv-scale, 1)); }
+.portal-core { width: calc(62px * var(--inv-scale, 1)); height: calc(62px * var(--inv-scale, 1)); }
+
+
+/* Ореол пояса астероидов: холст был квадратным и давал видимую рамку вокруг
+   Солнца. Маска гасит края по кругу — граница квадрата исчезает. */
+#asteroid-canvas {
+    -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 52%, rgba(0,0,0,.65) 72%, transparent 88%);
+            mask-image: radial-gradient(circle at 50% 50%, #000 52%, rgba(0,0,0,.65) 72%, transparent 88%);
+}
+#asteroid-canvas.asteroid-canvas-mask { /* якорь для повторного деплоя */ }
+
+
+/* Режим «только свои»: чужие борта и их линии скрыты */
+body.only-own-routes .ship-marker[data-side="npc"],
+body.only-own-routes .trade-path,
+body.only-own-routes .trade-paths,
+body.only-own-routes .traffic-path,
+body.only-own-routes .traffic-paths,
+body.only-own-routes .belt-route,
+body.only-own-routes .portal-path,
+body.only-own-routes .ship-marker--traffic {
+    display: none !important;
+}
+
+
+/* Гибридный режим: корабли на canvas, DOM-маркеры не рисуем */
+body.render-canvas .ship-marker { display: none !important; }
+#scene-canvas { display: block; }
+
+
+/* Правая панель: не уезжает за экран, фильтры доступны прокруткой */
+.control-panel {
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(138,180,248,.5) transparent;
+    padding-bottom: 18px;
+}
+.control-panel::-webkit-scrollbar { width: 6px; }
+.control-panel::-webkit-scrollbar-thumb { background: rgba(138,180,248,.45); border-radius: 3px; }
+.view-panel { max-height: none; overflow: visible; }
+.station-toggle-row { padding: 2px 0; }
+
+/* Левое меню: не дёргается при открытии */
+.left-menu.no-anim { transition: none !important; }
+body:not(.auth-ready) .left-menu { visibility: hidden; }
+
+
+/* Планетарный вид: наставник и оверлеи вселенной не мешают */
+body.pv-mode .mentor-panel,
+body.pv-mode #mentor-panel,
+body.pv-mode .tut-modal,
+body.pv-mode #tut-modal,
+body.pv-mode .legend-overlay,
+body.pv-mode #legend-overlay,
+body.pv-mode #welcome-screen {
+    display: none !important;
+}
+#pv-loading {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 10px; background: #070b12; color: #cfe3ff;
+    font: 15px/1.5 Inter, system-ui, sans-serif; z-index: 99998;
+}
+
+
+/* Canvas-режим: трассы рисует canvas, SVG-узлы скрыты */
+body.render-canvas .trade-path,
+body.render-canvas .fleet-route,
+body.render-canvas .belt-route,
+body.render-canvas .portal-path,
+body.render-canvas .traffic-path,
+body.render-canvas .route-line { display: none !important; }
+
+
+/* Орбиты — только рисунок: раньше квадрат орбиты перехватывал клики по планетам */
+.orbit { pointer-events: none !important; }
+.planet, .moon, .moon-station { pointer-events: auto; }
+
+
+/* Флот: свечение и хвост у движущихся бортов */
+.ship-marker--fleet[data-moving="1"] {
+    filter: drop-shadow(0 0 5px rgba(143, 227, 168, 0.85));
+}
+.ship-marker--fleet[data-moving="1"]::after {
+    content: '';
+    position: absolute;
+    left: 50%; top: 100%;
+    width: 2px; height: 10px;
+    transform: translateX(-50%);
+    background: linear-gradient(to bottom, rgba(143,227,168,0.7), rgba(143,227,168,0));
+}
+.ship-marker--fleet { z-index: 9; }
+
+
+/* CLICK: планеты выше маркеров, иначе маркер борта перекрывает клик по планете */
+.planet { z-index: 14 !important; }
+.moon, .moon-station { z-index: 13 !important; }
+.ship-marker { z-index: 6 !important; }
+.ship-marker--fleet { z-index: 7 !important; }
+
+
+/* CLICK: маркеры не ловят мышь — иначе они перекрывают планеты.
+   Клики по бортам ловит роутер в solar.js и отправляет событие маркеру. */
+.ship-marker { pointer-events: none !important; }
+
+
+/* Вармир: наставник и оверлеи вселенной не мешают */
+body.war-mode .mentor-panel,
+body.war-mode #mentor-panel,
+body.war-mode .tut-modal,
+body.war-mode #tut-modal,
+body.war-mode .legend-overlay,
+body.war-mode #legend-overlay,
+body.war-mode .control-panel,
+body.war-mode .left-menu { display: none !important; }
+
+
+/* Кнопка «Планетарный вид» не должна быть перекрыта панелью «Склад» */
+#pv-btn { position: relative; z-index: 10050 !important; pointer-events: auto !important; }
+.resources-panel { z-index: 9900 !important; }
+
+
+/* Солнце: свечение радиальным градиентом, а не box-shadow —
+   на 3D-повороте box-shadow рисовал КВАДРАТ вокруг Солнца */
+.sun { box-shadow: none !important; }
+.sun::after {
+    content: '';
+    position: absolute;
+    inset: -96px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,193,64,0.55) 0%, rgba(255,120,32,0.22) 42%, rgba(255,87,34,0.06) 62%, transparent 72%);
+    pointer-events: none;
+    z-index: -1;
+}

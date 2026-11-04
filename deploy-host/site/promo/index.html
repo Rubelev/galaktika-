@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Слайд-шоу «Галактики»</title>
+<style>
+  :root { --bg:#0a0f14; --card:#0f1720; --line:#1e2a35; --accent:#8fd6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:radial-gradient(120% 100% at 50% 0%, #16222e 0%, #0a1016 55%, #05080b 100%);
+         color:#dce8f7; font:15px/1.5 "Baloo 2", Fredoka, Inter, system-ui, sans-serif; min-height:100vh; }
+  header { text-align:center; padding:30px 16px 6px; }
+  h1 { margin:0 0 6px; font-size:clamp(20px,3.4vw,32px); color:var(--accent); }
+  .sub { opacity:.75; font-size:14px; }
+  .grid { max-width:1180px; margin:20px auto; padding:0 14px 40px; display:grid;
+          grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+  .card { background:var(--card); border:2px solid #0a0e12; border-radius:16px; overflow:hidden;
+          text-decoration:none; color:inherit; display:block; transition:transform .15s, box-shadow .15s; }
+  .card:hover { transform:translateY(-3px); box-shadow:0 16px 40px rgba(0,0,0,.5); }
+  .card img { display:block; width:100%; height:auto; }
+  .card .t { padding:10px 14px; font-weight:800; font-size:15px; }
+  .card .d { padding:0 14px 12px; font-size:12.5px; opacity:.7; }
+  footer { text-align:center; padding:0 16px 40px; opacity:.6; font-size:13px; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎬 Слайд-шоу «Галактики»</h1>
+  <div class="sub">Семь историй: квест, лифт, платформа, планеты, Пекин, Гуанчжоу, Париж</div>
+</header>
+
+<div class="grid">
+  <a class="card" href="/promo/reactor.html">
+    <img src="/images/promo/reactor-01.png" alt="Квест" />
+    <div class="t">🚨 Авария на станции</div>
+    <div class="d">Комната из блоков от первого лица: 5 кадров</div>
+  </a>
+  <a class="card" href="/promo/lift.html">
+    <img src="/images/promo/lift-01.png" alt="Лифт" />
+    <div class="t">🚀 Гравитационный лифт</div>
+    <div class="d">Скорость, пуски, окна по Луне: 4 слайда в векторе</div>
+  </a>
+  <a class="card" href="/promo/platform.html">
+    <img src="/images/promo/platform-01.png" alt="Платформа" />
+    <div class="t">🛰 Гравитационная платформа</div>
+    <div class="d">3D-модель, чертёж, Земля и Луна: 4 кадра</div>
+  </a>
+  <a class="card" href="/promo/planets.html">
+    <img src="/images/promo/planet-01.png" alt="Планеты" />
+    <div class="t">🏗 Планетарный конструктор</div>
+    <div class="d">Город, квартал, лунная станция, ночь: 4 кадра</div>
+  </a>
+  <a class="card" href="/promo/beijing.html">
+    <img src="/images/promo/beijing-01.png" alt="Пекин" />
+    <div class="t">🏮 Пекинский квартал</div>
+    <div class="d">Сыхэюани, пагода, храм: 4 кадра</div>
+  </a>
+  <a class="card" href="/promo/guangzhou.html">
+    <img src="/images/promo/gz-01.png" alt="Гуанчжоу" />
+    <div class="t">🏯 Гуанчжоу: башня и река</div>
+    <div class="d">Кантонская башня, Жемчужная река: 4 кадра</div>
+  </a>
+  <a class="card" href="/promo/paris.html">
+    <img src="/images/promo/paris-01.png" alt="Париж" />
+    <div class="t">🗼 Париж: Эйфелева башня</div>
+    <div class="d">Башня, Сена, османовские дома: 4 кадра</div>
+  </a>
+</div>
+
+<footer>Все кадры сняты в живой игре · <a href="/">вернуться в игру</a></footer>
+</body>
+</html>

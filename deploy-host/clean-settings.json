@@ -1,0 +1,34 @@
+{
+  "enabled": false,
+  "currency": "RUB",
+  "sbp": {
+    "link": "",
+    "phone": "",
+    "recipient": ""
+  },
+  "card": {
+    "number": "",
+    "recipient": ""
+  },
+  "note": "Укажите код платежа в комментарии к переводу.",
+  "packages": [
+    {
+      "id": "p1",
+      "title": "Стартовый",
+      "credits": 25,
+      "price": 100
+    },
+    {
+      "id": "p2",
+      "title": "Капитанский",
+      "credits": 150,
+      "price": 500
+    },
+    {
+      "id": "p3",
+      "title": "Адмиральский",
+      "credits": 500,
+      "price": 1500
+    }
+  ]
+}

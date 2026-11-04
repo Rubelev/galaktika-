@@ -24,9 +24,9 @@ const KNOWN_TEX = {
     titania: '/images/tex/titania.webp',
     neptune: '/images/tex/neptune.webp',
     triton: '/images/tex/triton.webp',
-    ceres: '/images/tex/ceres.jpg',
-    belt: '/images/tex/ceres.jpg',
-    kepler1: '/images/tex/kepler1.jpg'
+    ceres: '/images/tex/ceres.webp',
+    belt: '/images/tex/ceres.webp',
+    kepler1: '/images/tex/kepler1.webp'
 };
 
 const GAS = /saturn|jupiter|uranus|neptune|gas/i;
