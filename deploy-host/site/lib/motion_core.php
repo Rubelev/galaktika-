@@ -20,6 +20,10 @@ const MOTION_C_KM_S = 299792.0;
 const MOTION_KM_PER_PX = 808649.0;
 const MOTION_MIN_LEG_GAME_MS = 600000.0;      // 600 игровых секунд
 const MOTION_MAX_PX_PER_GAME_SEC = 1 / 45.0;  // не быстрее 1 px за 45 с
+// ЭПОХА J2000 (2000-01-01 12:00 UT): m0 в каталоге задан на неё, поэтому дни
+// считаются от неё, а не от 1970 (1:1 с js/orbit-kepler.js:EPOCH_MS).
+const MOTION_EPOCH_MS = 946728000000.0;
+const MOTION_DAY_MS = 86400000.0;
 
 function motion_registry() {
     static $reg = null;
@@ -262,11 +266,17 @@ function motion_kepler_solve($M, $e) {
 }
 
 function motion_kepler_position($orbit, $timeMs) {
-    $a = max(1e-6, isset($orbit['a']) ? (float)$orbit['a'] : 1.0);
+    $a = isset($orbit['a']) ? (float)$orbit['a'] : 1.0;
+    $t = (float)$timeMs;
+    // ГРАНИЦА (C-05): a<=0/NaN и NaN-время → безопасный ноль (1:1 с JS)
+    if (!is_finite($a) || $a <= 0.0 || !is_finite($t)) {
+        return array('x' => 0.0, 'y' => 0.0, 'z' => 0.0, 'r' => 0.0, 'E' => 0.0, 'M' => 0.0, 'invalid' => true);
+    }
     $e = min(0.9, max(0.0, isset($orbit['e']) ? (float)$orbit['e'] : 0.0));
     $P = max(0.001, isset($orbit['P']) ? (float)$orbit['P'] : 365.25);
     $M0 = deg2rad(isset($orbit['M0']) ? (float)$orbit['M0'] : 0.0);
-    $days = $timeMs / 86400000.0;
+    // ДНИ ОТ J2000, а не от 1970
+    $days = ($t - MOTION_EPOCH_MS) / MOTION_DAY_MS;
     $M = $M0 + ($days / $P) * M_PI * 2;
     $E = motion_kepler_solve($M, $e);
     $xv = $a * (cos($E) - $e);
@@ -280,5 +290,5 @@ function motion_kepler_position($orbit, $timeMs) {
     $y2 = $y1 * cos($inc);
     $x = $x1 * cos($om) - $y2 * sin($om);
     $y = $x1 * sin($om) + $y2 * cos($om);
-    return array('x' => $x, 'y' => $y, 'z' => $z2, 'r' => sqrt($x*$x + $y*$y + $z2*$z2), 'E' => $E);
+    return array('x' => $x, 'y' => $y, 'z' => $z2, 'r' => sqrt($x*$x + $y*$y + $z2*$z2), 'E' => $E, 'M' => $M);
 }

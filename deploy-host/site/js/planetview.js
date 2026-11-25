@@ -223,6 +223,10 @@
     }
 
     function open(worldId) {
+        // ОДИН ЭКЗЕМПЛЯР ВИДА: если этот мир уже открыт и 3D-слой на месте,
+        // второй проход не нужен — иначе появлялись вторая шапка и второй 3D-слой.
+        if (window.__pvOpenId === worldId && document.getElementById('blocks3d-wrap')) return;
+        window.__pvOpenId = worldId;
         window.__pvClosedBy = null;
         window.__pvOpenedAt = Date.now();
         window.__pvUserExit = false;
@@ -231,12 +235,15 @@
         if (!window.__pvWatch) {
             window.__pvWatch = setInterval(function () {
                 if (!window.__pvOpenedAt) return;
-                if (Date.now() - window.__pvOpenedAt > 5000) {
+                var age = Date.now() - window.__pvOpenedAt;
+                if (age > 5000) {
                     clearInterval(window.__pvWatch); window.__pvWatch = null; return;
                 }
                 var w = document.getElementById('blocks3d-wrap');
-                if (!w && !window.__pvUserExit && !window.__pvRetried &&
-                    Date.now() - window.__pvOpenedAt < 3000) {
+                // спуск занимает ~780 мс + асинхронную загрузку 3D: «пусто» раньше
+                // 1,8 с — это норма, а не сбой. Порог 400 мс открывал вид ДВАЖДЫ
+                // (две #pv-bar и два #blocks3d-wrap на одной странице).
+                if (age > 1800 && age < 3000 && !w && !window.__pvUserExit && !window.__pvRetried) {
                     window.__pvRetried = true;
                     try { open(worldId); } catch (e) { }
                 }
@@ -256,7 +263,7 @@
         }
         window.__pvStep = 'blocks3d-ok';
         var world = null;
-        try { world = WORLDS.filter(function (w) { return w.id === worldId; })[0] || profileFromCatalog(worldId) || WORLDS[0]; }
+        try { world = worldById(worldId); }
         catch (e) { window.__pvErr = 'WORLDS: ' + e.message; window.__pvStep = 'worlds-fail'; return; }
         window.__pvStep = 'world-ok:' + (world && world.id);
         window.__pvWorld = world && world.id;
@@ -459,6 +466,12 @@ return out;
 
     function planetScene(world) {
         window.__pvStep = 'scene-enter';
+        // один экземпляр вида: прежние панель и 3D-слой убираем, иначе повторный
+        // вход оставлял вторую #pv-bar и второй #blocks3d-wrap
+        var prevBar = document.getElementById('pv-bar');
+        if (prevBar && prevBar.parentNode) prevBar.parentNode.removeChild(prevBar);
+        var prevWrap = document.getElementById('blocks3d-wrap');
+        if (prevWrap && prevWrap.parentNode) prevWrap.parentNode.removeChild(prevWrap);
         if (!window.Blocks3D) {
             // модуль может ещё грузиться — ждём его, а не выходим молча
             window.__pvStep = 'scene-wait-blocks3d';
@@ -472,7 +485,10 @@ return out;
             return;
         }
         window.__pvStep = 'scene-blocks3d-ok';
-        var profile = world.profile || WORLD_PROFILES.earth;
+        // профиль берём у записи мира; «Земля» больше не подставляется молча
+        var profile = world.profile || profileFromCatalog(world.id);
+        // один id на всё: после смены мира селектом диагностика не должна врать старым id
+        window.__pvWorld = world.id;
 
         var bar = el('div');
         bar.id = 'pv-bar';
@@ -602,7 +618,7 @@ return out;
         var camK = 1;
         try {
             var cat = (window.CATALOG && (window.CATALOG.bodies || window.CATALOG)) || [];
-            var cb = (cat || []).filter(function (x) { return x.id === worldId; })[0];
+            var cb = (cat || []).filter(function (x) { return x.id === world.id; })[0];
             var R = cb && Number(cb.radius_km);
             if (R && isFinite(R)) camK = Math.max(0.35, Math.min(2.2, Math.sqrt(R / 6371)));
         } catch (e) { }
@@ -616,6 +632,9 @@ return out;
         var nightPal = {};
         Object.keys(profile.palette).forEach(function (k) {
             var c = profile.palette[k];
+            // профили из каталога хранят цвета строками '#rrggbb': битовые сдвиги
+            // по строке дают 0 и ночь превращалась в чёрный экран
+            if (typeof c === 'string') c = parseInt(c.replace('#', ''), 16) || 0;
             var r = ((c >> 16) & 255) * 0.45, g2 = ((c >> 8) & 255) * 0.5, b2 = (c & 255) * 0.7;
             nightPal[k] = (Math.round(r) << 16) | (Math.round(g2) << 8) | Math.round(b2);
         });
@@ -623,7 +642,7 @@ return out;
         window.Blocks3D.open({
             skyTexture: skyFor(world),
             editor: true,
-            title: (nightOn ? '🌙 ' : '🌍 ') + profile.name + ' · гравитационная платформа',
+            title: (nightOn ? '🌙 ' : '🌍 ') + (world.name || profile.name) + ' · гравитационная платформа',
             terrain: terrain,
             blocks: station,
             palette: nightOn ? nightPal : profile.palette,
@@ -700,17 +719,29 @@ function profileFromCatalog(worldId) {
     };
 }
 
-// ДОПОЛНЯЕМ СПИСОК МИРОВ ИЗ КАТАЛОГА: иначе карликовые и астероиды
-// падали в fallback и показывали Землю («Земля · Мегаполис»).
+// ДОПОЛНЯЕМ СПИСОК МИРОВ ИЗ КАТАЛОГА.
+// ОДНА ТОЧКА ПРАВДЫ: id → запись { id, name, profile }.
+// Раньше миры каталога пушились «голым» профилем (без .profile), поэтому
+// planetScene() брал WORLD_PROFILES.earth — и любое тело каталога (астероиды,
+// карликовые, арена Адрастея) рисовалось как Земля: «Земля · гравитационная
+// платформа» при pvWorld = adrasteya.
+function worldById(worldId) {
+    var w = WORLDS.filter(function (x) { return x.id === worldId; })[0] || null;
+    if (w && w.profile) return w;                       // уже в правильном формате
+    var p = profileFromCatalog(worldId);                // всегда возвращает профиль
+    var cat = (window.CATALOG && (window.CATALOG.bodies || window.CATALOG)) || [];
+    var b = cat.filter(function (x) { return x && x.id === worldId; })[0] || null;
+    var rec = { id: worldId, name: (b && b.name) || p.name || worldId, profile: p };
+    if (w) { w.name = rec.name; w.profile = p; return w; }
+    WORLDS.push(rec);
+    return rec;
+}
+
 function ensureWorldsFromCatalog() {
     try {
         var c = window.CATALOG;
         var list = (c && (c.bodies || c)) || [];
-        list.forEach(function (b) {
-            if (!b || !b.id) return;
-            var has = WORLDS.some(function (w) { return w.id === b.id; });
-            if (!has) WORLDS.push(profileFromCatalog(b.id));
-        });
+        list.forEach(function (b) { if (b && b.id) worldById(b.id); });
     } catch (e) { }
 }
 setInterval(ensureWorldsFromCatalog, 1500);

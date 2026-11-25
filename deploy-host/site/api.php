@@ -4,11 +4,17 @@ require_once __DIR__ . '/lib/race_core.php';
 require_once __DIR__ . '/lib/build_core.php';
 require_once __DIR__ . '/lib/presence_core.php';
 require_once __DIR__ . '/lib/food_core.php';
+require_once __DIR__ . '/lib/civ_core.php';
+require_once __DIR__ . '/lib/mob_core.php';
+require_once __DIR__ . '/lib/engineer_core.php';
 require_once __DIR__ . '/lib/food_market.php';
 require_once __DIR__ . '/lib/world_econ.php';
 require_once __DIR__ . '/lib/casino_core.php';
+require_once __DIR__ . '/lib/casino_vegas.php';
+require_once __DIR__ . '/lib/trophy_core.php';
 require_once __DIR__ . '/lib/store.php';
 require_once __DIR__ . '/lib/battle_core.php';
+require_once __DIR__ . '/lib/ship_stats.php';
 // ============================================================================
 //  СВЯЗИ: что править вместе с этим файлом (api.php)
 //  ---------------------------------------------------------------------------
@@ -77,6 +83,7 @@ $worldsFile    = $dataDir . '/worlds.json';
 $feedbackFile  = $dataDir . '/feedback.json';
 $clientErrFile = $dataDir . '/client-errors.json';
 $pirateFile    = $dataDir . '/pirate-market.json';
+$trophiesFile  = $dataDir . '/trophies.json';   // TZ-261108-02: коллекция трофеев, ключ — e-mail
 
 function json_out($code, $payload) { http_response_code($code); echo json_encode($payload, JSON_UNESCAPED_UNICODE); exit; }
 
@@ -243,12 +250,24 @@ function colony_step(&$profile, $days) {
             if (isset($profile['resources']['water'])) {
                 $profile['resources']['water'] = max(0, $profile['resources']['water'] - $foodPlan['water_needed']);
             }
+            // сырьё завода: метан и азот со склада (input_* из food_factory);
+            // чего не хватило на складе — уже оплачено кредитами в energy_cost,
+            // план помечен resource_limited
+            $rawTake = food_raw_take($profile['resources'], array(
+                'methane' => $foodPlan['methane_need_kg'],
+                'nitrogen' => $foodPlan['nitrogen_kg']
+            ));
             $out['foodFactory'] = array(
                 'produced_kg' => $foodPlan['produced_kg'],
                 'fed_people' => $foodPlan['fed_people'],
                 'energy_cost' => $foodPlan['energy_cost'],
                 'credit_limited' => $foodPlan['credit_limited'],
-                'water_limited' => $foodPlan['water_limited']
+                'water_limited' => $foodPlan['water_limited'],
+                'raw_used_kg' => array('methane' => round($rawTake['used_kg']['methane'], 2),
+                                       'nitrogen' => round($rawTake['used_kg']['nitrogen'], 2)),
+                'raw_short_kg' => array('methane' => round($rawTake['short_kg']['methane'], 2),
+                                        'nitrogen' => round($rawTake['short_kg']['nitrogen'], 2)),
+                'resource_limited' => $rawTake['limited']
             );
         }
     }
@@ -256,14 +275,34 @@ function colony_step(&$profile, $days) {
     if (!empty($c['upgrades']['hydro'])) $foodNeed *= 0.7;
     if (!empty($c['upgrades']['recycle'])) $waterNeed *= 0.6;
     if ($autonomy) { $foodNeed = 0; $waterNeed = 0; }
-    $grain = isset($profile['resources']['grain']) ? max(0, (float)$profile['resources']['grain']) : 0;
+    // ЕДА (G-05/G-06): база по цене (зерно 4 → синтетика 8–15), затем «эдакое» —
+    // деликатесы долей от достатка (кр/чел). Деликатес — последняя линия при голоде.
+    // Для аккаунта без food_* результат прежний: всю потребность закрывает зерно.
+    $eat = food_feed_population($profile['resources'], $foodNeed,
+                                isset($profile['credits']) ? (float)$profile['credits'] : 0,
+                                (float)$c['population']);
+    $out['foodEatenFromStock'] = round($eat['from_stock_kg'], 2);
+    $out['foodEatenFromGrain'] = round($eat['from_grain_kg'], 2);
+    $out['foodEatenCost'] = round($eat['cost_total'], 2);
+    $out['luxShare'] = $eat['lux_share'];
+    $out['luxuryKg'] = round($eat['lux_kg'], 2);
+    $out['luxuryCost'] = round($eat['lux_cost'], 2);
+    $out['luxActualShare'] = round($eat['lux_share_actual'], 4);
+    $out['luxuryShort'] = round($eat['luxury_short_kg'], 2);
+    if (!empty($eat['by'])) {
+        // по каждому виду: сколько кг и на какую сумму — чтобы потеря не была молчаливой
+        $eatBy = array();
+        foreach ($eat['by'] as $ek => $erow) {
+            $eatBy[$ek] = array('kg' => round($erow['kg'], 2), 'price' => $erow['price'],
+                                'cost' => round($erow['cost'], 2));
+        }
+        $out['foodEatenBy'] = $eatBy;
+    }
     $water = isset($profile['resources']['water']) ? max(0, (float)$profile['resources']['water']) : 0;
-    $foodGot = min($grain, $foodNeed);
     $waterGot = min($water, $waterNeed);
-    $profile['resources']['grain'] = $grain - $foodGot;
     $profile['resources']['water'] = $water - $waterGot;
 
-    $out['foodShort'] = $foodNeed > 0 ? 1 - $foodGot / $foodNeed : 0;
+    $out['foodShort'] = $foodNeed > 0 ? $eat['short_kg'] / $foodNeed : 0;
     $out['waterShort'] = $waterNeed > 0 ? 1 - $waterGot / $waterNeed : 0;
     $out['deficit'] = max($out['foodShort'], $out['waterShort']);
 
@@ -271,6 +310,12 @@ function colony_step(&$profile, $days) {
         $c['happiness'] -= 10 * $out['deficit'] * $days;
     } else {
         $c['happiness'] += 1.0 * $days;   // быстрее выходим из голода
+    }
+    // «эдакое»: довольство деликатесами, если их доля в рационе ≥20 % и колония не голодает
+    $luxHappy = ($out['deficit'] > 0.001) ? 0.0 : food_lux_happy_bonus($eat['lux_share_actual'], $days);
+    if ($luxHappy > 0) {
+        $c['happiness'] += $luxHappy;
+        $out['luxHappy'] = round($luxHappy, 2);
     }
     // театр: культурная программа даёт +1.5 счастья в сутки и требует воды на содержание
     if (!empty($c['theatre'])) {
@@ -309,7 +354,27 @@ function colony_step(&$profile, $days) {
     $premiereBonus = 1;
     if (isset($c['premiereUntil']) && (int)$c['premiereUntil'] > $now) $premiereBonus = 1.01;
     $out['taxCoef'] = $taxCoef;
-    $out['credits'] = $popForTax * (float)$c['taxRate'] * $taxCoef * $days * (1 + $astralBonus) * $premiereBonus;
+    // F-03: бонус коллекции трофеев — +2 % за собранный сет, максимум +6 % к налогу.
+    // Источник — trophies.json игрока и фактические предметы (а не запись sets).
+    $trophyBonus = 1.0;
+    if (function_exists('trophy_bonus_from_items')) {
+        $tkey = isset($profile['email']) ? norm($profile['email']) : '';
+        $meG = isset($GLOBALS['me']) ? $GLOBALS['me'] : null;
+        if ($tkey === '' && $meG) $tkey = norm($meG['Email']);
+        if ($tkey !== '') {
+            // Внутри функции глобальные пути недоступны — берём через $GLOBALS,
+            // иначе PHP печатает warning перед JSON и ответ ломается.
+            $tfile = isset($GLOBALS['trophiesFile']) && $GLOBALS['trophiesFile']
+                ? $GLOBALS['trophiesFile']
+                : (rtrim((string)($GLOBALS['dataDir'] ?? ''), '/') . '/trophies.json');
+            $tall = load_json($tfile, array());
+            $tstate = isset($tall[$tkey]) && is_array($tall[$tkey]) ? $tall[$tkey] : array('items' => array());
+            $tb = trophy_bonus_from_items($tstate);
+            $trophyBonus = 1 + (float)$tb['bonus'];
+        }
+    }
+    $out['trophyBonus'] = round($trophyBonus - 1, 4);
+    $out['credits'] = $popForTax * (float)$c['taxRate'] * $taxCoef * $days * (1 + $astralBonus) * $premiereBonus * $trophyBonus;
     $c['taxCollected'] = (isset($c['taxCollected']) ? (float)$c['taxCollected'] : 0) + $out['credits'];
 
     $rate = 0.01;   // 1% в день, довольные — вдвое быстрее
@@ -685,19 +750,14 @@ function factory_table() {
         'park' => array('cost' => 48000, 'steel' => 120, 'chips' => 10, 'fun' => 6),
     );
 }
-// Корабли: цены и комплектующие (зеркало клиентской таблицы SHIPS)
+// Корабли: цены и комплектующие. Числа — из lib/ship_stats.php (единый источник,
+// сгенерирован из клиентской таблицы SHIPS). Здесь только форма ответа.
 function ship_table() {
-    return array(
-        'jet_scout' => array('price' => 18000, 'parts' => array('steel' => 60, 'copper' => 20, 'nickel' => 10, 'silver' => 2, 'gold' => 1, 'chips' => 8)),
-        'jet_hauler' => array('price' => 26000, 'parts' => array('steel' => 120, 'copper' => 40, 'nickel' => 25, 'silver' => 4, 'gold' => 1, 'chips' => 14, 'boards' => 20, 'manip' => 4)),
-        'ion_courier' => array('price' => 34000, 'parts' => array('steel' => 80, 'copper' => 30, 'nickel' => 15, 'silver' => 3, 'gold' => 2, 'chips' => 20, 'boards' => 26, 'manip' => 3)),
-        'ion_corsair' => array('price' => 75000, 'parts' => array('steel' => 120, 'copper' => 36, 'nickel' => 18, 'silver' => 3, 'gold' => 1, 'chips' => 14, 'boards' => 16, 'manip' => 3)),
-        'ion_prospector' => array('price' => 42000, 'parts' => array('steel' => 140, 'copper' => 60, 'nickel' => 35, 'silver' => 6, 'gold' => 2, 'chips' => 18, 'boards' => 24, 'manip' => 6)),
-        'plasma_interceptor' => array('price' => 58000, 'parts' => array('steel' => 110, 'copper' => 45, 'nickel' => 30, 'silver' => 8, 'gold' => 3, 'chips' => 30, 'boards' => 34, 'manip' => 5)),
-        'plasma_lancer' => array('price' => 92000, 'parts' => array('steel' => 200, 'copper' => 80, 'nickel' => 50, 'silver' => 14, 'gold' => 5, 'chips' => 44, 'boards' => 48, 'manip' => 8)),
-        'grav_frigate' => array('price' => 130000, 'parts' => array('steel' => 320, 'copper' => 120, 'nickel' => 80, 'silver' => 24, 'gold' => 8, 'chips' => 70, 'boards' => 76, 'manip' => 14)),
-        'grav_colossus' => array('price' => 320000, 'parts' => array('steel' => 900, 'copper' => 300, 'nickel' => 200, 'silver' => 60, 'gold' => 20, 'chips' => 160, 'boards' => 180, 'manip' => 30)),
-    );
+    $out = array();
+    foreach (SHIP_STATS as $id => $s) {
+        $out[$id] = array('price' => $s['price'], 'parts' => $s['parts']);
+    }
+    return $out;
 }
 // Чёрный рынок: курсы обмена ресурсов на кристаллы
 function bm_rates() {
@@ -978,17 +1038,9 @@ function ship_stats_with_mods($ship) {
 
 // ---------- боевая математика ----------
 function combat_ship_table() {
-    return array(
-        'jet_scout' => array('name' => 'Разведчик «Искра»', 'hull' => 900, 'shield' => 300, 'armor' => 0.10, 'evade' => 0.25, 'energy' => 60, 'slots' => 1),
-        'jet_hauler' => array('name' => 'Тягач «Мул»', 'hull' => 1800, 'shield' => 200, 'armor' => 0.20, 'evade' => 0.05, 'energy' => 70, 'slots' => 1),
-        'ion_courier' => array('name' => 'Курьер «Стриж»', 'hull' => 1200, 'shield' => 500, 'armor' => 0.15, 'evade' => 0.18, 'energy' => 80, 'slots' => 2),
-        'ion_corsair' => array('name' => 'Корсар «Клык»', 'hull' => 1600, 'shield' => 700, 'armor' => 0.20, 'evade' => 0.15, 'energy' => 100, 'slots' => 2),
-        'ion_prospector' => array('name' => 'Геолог «Бур»', 'hull' => 2000, 'shield' => 400, 'armor' => 0.30, 'evade' => 0.05, 'energy' => 90, 'slots' => 1),
-        'plasma_interceptor' => array('name' => 'Перехватчик «Сабля»', 'hull' => 1400, 'shield' => 800, 'armor' => 0.15, 'evade' => 0.30, 'energy' => 110, 'slots' => 2),
-        'plasma_lancer' => array('name' => 'Ланцер «Пика»', 'hull' => 2200, 'shield' => 1100, 'armor' => 0.25, 'evade' => 0.12, 'energy' => 130, 'slots' => 3),
-        'grav_frigate' => array('name' => 'Фрегат «Щит»', 'hull' => 4200, 'shield' => 2000, 'armor' => 0.35, 'evade' => 0.08, 'energy' => 170, 'slots' => 4),
-        'grav_colossus' => array('name' => 'Колосс «Титан»', 'hull' => 12000, 'shield' => 5500, 'armor' => 0.45, 'evade' => 0.02, 'energy' => 260, 'slots' => 5)
-    );
+    // Баланс арены не менялся: числа перенесены 1:1 в lib/ship_stats.php
+    // (SHIP_COMBAT_STATS). hull 900..12000 — ДРУГАЯ единица, не клиентский hp.
+    return SHIP_COMBAT_STATS;
 }
 
 function combat_gun_table() {
@@ -2593,11 +2645,15 @@ switch ($action) {
             : 'race_tarsis';
         $def = world_econ_def($eventId);
         if (!$def) json_out(400, array('error' => 'нет такого события'));
+        // H-01: частоту задаёт сервер. force — только для админа,
+        // у обычного игрока он игнорируется и он ждёт кулдаун (429 + wait_sec).
         $force = !empty($input['force']);
         $now = time();
         $last = isset($profile['worldLastTick']) ? (int)$profile['worldLastTick'] : 0;
-        if (!$force && $last && ($now - $last) < 3600) {
-            json_out(429, array('error' => 'событие ещё не началось', 'wait_sec' => 3600 - ($now - $last)));
+        $gate = world_tick_gate($last, $now, $isAdmin, $force);
+        if (!$gate['ok']) {
+            json_out(429, array('error' => $gate['error'], 'wait_sec' => $gate['wait_sec'],
+                                'cooldown' => WE_TICK_COOLDOWN));
         }
         $presence = load_json($dataDir . '/presence.json', array());
         $onlineNow = count(presence_list($presence, '', null));
@@ -2612,7 +2668,75 @@ switch ($action) {
         save_json($usersFile, $users);
         json_out(200, array('ok' => true, 'event' => $def['event'], 'guests' => $guests,
                             'fill' => round($fill, 3), 'online' => $onlineNow, 'balance' => $bal,
+                            'forced' => $gate['forced'], 'wait_sec' => $gate['wait_sec'],
                             'credits_before' => $before, 'credits_after' => $profile['credits']));
+
+    // ---------------- ТРОФЕЙНАЯ КОЛЛЕКЦИЯ (TZ-261108-02) ----------------
+    // Состояние — отдельный trophies.json по e-mail (profile затирается целиком).
+    // Бросок делает СЕРВЕР: клиент присылает только set и roll_id (идемпотентность).
+    // Кристаллы не участвуют ни в получении, ни в крафте — на попытку 400.
+    case 'trophy_status':
+        if (!$me) json_out(401, array('error' => 'нужно войти в игру'));
+        $tkey = norm($me['Email']);
+        $tall = load_json($trophiesFile, array());
+        $tstate = (isset($tall[$tkey]) && is_array($tall[$tkey])) ? $tall[$tkey] : array();
+        $tnow = time();
+        trophy_normalize($tstate, $tnow);
+        $tcan = trophy_can_roll($tstate, $tnow);
+        $tprog = trophy_progress($tstate);
+        json_out(200, array(
+            'ok' => true,
+            'progress' => $tprog,
+            'shards' => (int)$tstate['shards'],
+            'craft_cost' => trophy_craft_cost(),
+            'pity' => (int)$tstate['pity'],
+            'rolls' => array('used' => $tcan['used'], 'left' => $tcan['left'],
+                             'limit' => $tcan['limit'], 'wait_sec' => $tcan['wait_sec'],
+                             'day' => $tstate['day']),
+            'bonuses' => trophy_bonuses($tstate)
+        ));
+
+    case 'trophy_roll':
+        if ($method !== 'POST' || !$me) json_out(401, array('error' => 'нужно войти в игру'));
+        if (!empty($input['crystals']) || !empty($input['buy'])) {
+            json_out(400, array('error' => 'предметы и осколки не продаются за кристаллы'));
+        }
+        $tkey = norm($me['Email']);
+        $tall = load_json($trophiesFile, array());
+        $tstate = (isset($tall[$tkey]) && is_array($tall[$tkey])) ? $tall[$tkey] : array();
+        $tnow = time();
+        $trollId = isset($input['roll_id']) ? (string)$input['roll_id'] : '';
+        $tres = trophy_roll($tstate, isset($input['set']) ? (string)$input['set'] : '', $tnow, $trollId);
+        if (empty($tres['ok'])) json_out(isset($tres['code']) ? (int)$tres['code'] : 400, $tres);
+        $tall[$tkey] = $tstate;
+        save_json($trophiesFile, $tall);
+        $tprog = trophy_progress($tstate);
+        $tres['shards_total'] = (int)$tstate['shards'];
+        $tres['have'] = $tprog['have'];
+        $tres['collected'] = $tprog['collected'];
+        $tres['total'] = $tprog['total'];
+        json_out(200, $tres);
+
+    case 'trophy_craft':
+        if ($method !== 'POST' || !$me) json_out(401, array('error' => 'нужно войти в игру'));
+        if (!empty($input['crystals']) || !empty($input['buy'])) {
+            json_out(400, array('error' => 'крафт только за осколки, кристаллы не участвуют'));
+        }
+        $tkey = norm($me['Email']);
+        $tall = load_json($trophiesFile, array());
+        $tstate = (isset($tall[$tkey]) && is_array($tall[$tkey])) ? $tall[$tkey] : array();
+        $tnow = time();
+        $tres = trophy_craft($tstate,
+            isset($input['set']) ? (string)$input['set'] : '',
+            isset($input['item']) ? (string)$input['item'] : '', $tnow);
+        if (empty($tres['ok'])) json_out(isset($tres['code']) ? (int)$tres['code'] : 400, $tres);
+        $tall[$tkey] = $tstate;
+        save_json($trophiesFile, $tall);
+        $tprog = trophy_progress($tstate);
+        $tres['have'] = $tprog['have'];
+        $tres['collected'] = $tprog['collected'];
+        $tres['total'] = $tprog['total'];
+        json_out(200, $tres);
 
     // ---------------- КАЗИНО ----------------
     case 'casino_status':
@@ -2636,23 +2760,48 @@ switch ($action) {
 
         $result = array();
         $payout = 0.0;   // сколько вернулось игроку (включая ставку)
-        if ($gameId === 'roulette_eu' || $gameId === 'roulette_us') {
-            $american = ($gameId === 'roulette_us');
+        if (strpos($gameId, 'roulette_') === 0) {
             $bet = isset($input['bet']) && is_array($input['bet']) ? $input['bet'] : array('type' => 'red');
-            $spin = casino_roulette_spin($american);
-            $mult = casino_roulette_payout($spin, $bet, $american);
-            $payout = $mult > 0 ? $stake * (1 + $mult) : 0.0;
-            $result = array('spin' => $spin, 'bet' => $bet, 'multiplier' => $mult,
-                            'win' => $mult > 0, 'color' => in_array($spin, casino_red_numbers(), true) ? 'red' : ($spin === 0 || $spin === 37 ? 'green' : 'black'));
-        } elseif ($gameId === 'horses') {
-            $odds = array(2.4, 3.6, 5.0, 7.5, 11.0);
+            $spin = roulette_spin($gameId);
+            $mult = roulette_payout_mult($gameId, $spin['pocket'], $bet);
+            if ($mult > 0 && $spin['mult'] > 1 && ($bet['type'] ?? '') === 'number') {
+                $mult = $mult * $spin['mult'];
+            }
+            $payout = $stake * $mult;
+            $result = array('pocket' => $spin['pocket'], 'mult' => $spin['mult'], 'bet' => $bet,
+                            'multiplier' => $mult, 'win' => $mult > 1,
+                            'color' => ($spin['pocket'] === 0 ? 'green' : (in_array($spin['pocket'], casino_red_numbers(), true) ? 'red' : 'black')));
+        } elseif ($gameId === 'horses' || strpos($gameId, 'horses_') === 0) {
+            $track = strpos($gameId, 'horses_') === 0 ? substr($gameId, 7) : 'ceres';
+            $odds = horses_odds_for_track($track);
+            $odds = array_slice($odds, 0, 8);
             $pick = isset($input['pick']) ? max(0, min(count($odds) - 1, (int)$input['pick'])) : 0;
             $winner = casino_horses_run($odds);
             $won = ($winner === $pick);
             $profit = casino_horses_payout($stake, $odds[$pick], $won, 0.15);
             $payout = $won ? $stake + $profit : 0.0;
             $result = array('winner' => $winner, 'pick' => $pick, 'odds' => $odds[$pick], 'win' => $won);
-        } elseif ($gameId === 'sports') {
+        } elseif (in_array($gameId, array('blackjack','blackjack_switch','poker_three','bridge'), true)) {
+            if ($gameId === 'poker_three') {
+                $hand = poker_three_deal();
+                $rank = poker_three_rank($hand);
+                $payout = $rank['mult'] > 0 ? $stake * (1 + $rank['mult']) : 0.0;
+                $result = array('hand' => array_map(fn($c) => $c['r'], $hand), 'rank' => $rank['name'],
+                                'win' => $rank['mult'] > 0, 'multiplier' => $rank['mult']);
+            } elseif ($gameId === 'bridge') {
+                $odds = array(1.9, 2.3, 3.1, 4.2);
+                $pick = max(0, min(3, (int)($input['pick'] ?? 0)));
+                $winner = bridge_round($odds);
+                $won = ($winner === $pick);
+                $profit = $won ? $stake * ($odds[$pick] - 1) : -$stake;
+                $payout = $won ? $stake + $profit : 0.0;
+                $result = array('winner' => $winner, 'pick' => $pick, 'odds' => $odds[$pick], 'win' => $won);
+            } else {
+                $ret = blackjack_round($gameId === 'blackjack_switch');
+                $payout = $stake * $ret;
+                $result = array('return_mult' => $ret, 'win' => $ret > 1, 'push' => $ret == 1.0);
+            }
+        } elseif ($gameId === 'sports' || strpos($gameId, 'sport_') === 0) {
             $events = casino_sports_events((int)floor(time() / 3600));
             $evIdx = isset($input['event']) ? max(0, min(2, (int)$input['event'])) : 0;
             $pick = isset($input['pick']) ? max(0, min(2, (int)$input['pick'])) : 0;
@@ -2664,9 +2813,11 @@ switch ($action) {
             $payout = $won ? $stake + $profit : 0.0;
             $result = array('event' => $ev['name'], 'outcome' => $ev['outcomes'][$winner],
                             'pick' => $ev['outcomes'][$pick], 'odds' => $odds, 'win' => $won);
-        } elseif ($gameId === 'slots') {
-            $reels = casino_slots_spin();
-            $payout = casino_slots_payout($reels, $stake);
+        } elseif (strpos($gameId, 'slot_') === 0 || $gameId === 'slots') {
+            $def = casino_def($gameId);
+            $rtp = $def ? (1 - (float)$def['house_edge']) : 0.96;
+            $reels = slots_spin_cfg($rtp);
+            $payout = slots_payout_cfg($reels, $stake, $rtp);
             $result = array('reels' => $reels, 'win' => $payout > 0, 'multiplier' => round($payout / $stake, 2));
         } else {
             json_out(400, array('error' => 'эта игра пока не подключена', 'game' => $gameId));
@@ -2819,6 +2970,111 @@ switch ($action) {
         save_json($usersFile, $users);
         json_out(200, array('ok' => true, 'quote' => $q, 'credits' => round($profile['credits'], 2),
                             'stock' => round($profile['resources'][$resKey], 2)));
+
+    // ---------------- БОТЫ-ЦИВИЛИЗАЦИИ ----------------
+    case 'civ_status':
+        $state = civ_state_load();
+        $list = array();
+        foreach (civ_list() as $c) {
+            $st = $state[$c['id']] ?? civ_default_state($c);
+            $list[] = array(
+                'id' => $c['id'], 'name' => $c['name'], 'faction' => $c['faction'],
+                'home' => $c['home'], 'motto' => $c['motto'],
+                'autonomy_pct' => (float)$c['autonomy_pct'],
+                'state' => array(
+                    'credits' => round($st['credits']), 'food' => round($st['food']),
+                    'population' => (int)$st['population'], 'fleet' => (int)$st['fleet'],
+                    'influence' => (int)$st['influence'], 'territory' => (int)$st['territory'],
+                    'last_tick' => (int)$st['last_tick'], 'tick_no' => (int)$st['tick_no']
+                ),
+                'totals' => $st['totals']
+            );
+        }
+        json_out(200, array('ok' => true, 'civs' => $list, 'autonomy' => civ_autonomy_report()));
+
+    case 'civ_log':
+        $file = $dataDir . '/civ-log.json';
+        $log = is_file($file) ? (json_decode(file_get_contents($file), true) ?: array()) : array();
+        json_out(200, array('ok' => true, 'total' => count($log), 'log' => array_slice($log, -50)));
+
+    case 'civ_tick':
+        if (!$me || (isset($me['Role']) && $me['Role'] !== 'admin')) {
+            json_out(403, array('error' => 'только администратор'));
+        }
+        $res = civ_tick_all();
+        json_out(200, array('ok' => true, 'tick_at' => $res['tick_at'],
+                            'actions' => count($res['actions']), 'civs' => count($res['civs']),
+                            'autonomy' => civ_autonomy_report()));
+
+    // ---------------- КЕП-ВЕГАС ----------------
+    case 'casino_zones':
+        $zones = array();
+        foreach (casino_zones() as $z) {
+            $games = casino_zone_games($z['id']);
+            $zones[] = array(
+                'id' => $z['id'], 'name' => $z['name'], 'theme' => $z['theme'],
+                'description' => $z['description'],
+                'min_stake' => (float)$z['min_stake'], 'max_stake' => (float)$z['max_stake'],
+                'halls' => casino_halls($z['id']),
+                'games_total' => count($games),
+                'games' => array_slice($games, 0, 24)
+            );
+        }
+        json_out(200, array('ok' => true, 'zones' => $zones, 'halls_total' => count(casino_halls()),
+                            'games_total' => count($GLOBALS['CASINO'])));
+
+    // ---------------- МОБЫ-ЛИЧНОСТИ ----------------
+    case 'mob_status':
+        json_out(200, array('ok' => true, 'report' => mob_report()));
+
+    case 'mob_list':
+        $civ = isset($_GET['civ']) ? (string)$_GET['civ'] : '';
+        $role = isset($_GET['role']) ? (string)$_GET['role'] : '';
+        $state = mob_state_load();
+        $out = array();
+        foreach (mob_catalog() as $m) {
+            if ($civ !== '' && $m['civ'] !== $civ) continue;
+            if ($role !== '' && $m['role'] !== $role) continue;
+            $st = $state[$m['id']] ?? mob_default($m);
+            $out[] = array('id' => $m['id'], 'name' => $m['name'], 'civ' => $m['civ'], 'role' => $m['role'],
+                           'credits' => round($st['credits']), 'earned' => round($st['earned']),
+                           'spent' => round($st['spent']), 'mood' => $st['mood'], 'last' => $st['last']);
+            if (count($out) >= 200) break;
+        }
+        json_out(200, array('ok' => true, 'total' => count($out), 'mobs' => $out));
+
+    case 'mob_tick':
+        if (!$me || (isset($me['Role']) && $me['Role'] !== 'admin')) {
+            json_out(403, array('error' => 'только администратор'));
+        }
+        $res = mob_tick_all();
+        json_out(200, array('ok' => true, 'mobs' => $res['mobs'], 'totals' => $res['totals'], 'check' => $res['check']));
+
+    // ---------------- БОТ-ИНЖЕНЕР И ЖУРНАЛ БОТОВ ----------------
+    case 'engineer_status':
+        if (!$me || (isset($me['Role']) && $me['Role'] !== 'admin')) {
+            json_out(403, array('error' => 'только администратор'));
+        }
+        $rep = eng_scan(false);
+        json_out(200, $rep);
+
+    case 'engineer_scan':
+        if ($method !== 'POST' || !$me || (isset($me['Role']) && $me['Role'] !== 'admin')) {
+            json_out(403, array('error' => 'только администратор'));
+        }
+        $rep = eng_scan(true);
+        json_out(200, $rep);
+
+    case 'bot_log':
+        if (!$me || (isset($me['Role']) && $me['Role'] !== 'admin')) {
+            json_out(403, array('error' => 'только администратор'));
+        }
+        $bot = isset($_GET['bot']) ? (string)$_GET['bot'] : null;
+        $lvl = isset($_GET['level']) ? (string)$_GET['level'] : null;
+        $limit = isset($_GET['limit']) ? max(1, min(500, (int)$_GET['limit'])) : 50;
+        json_out(200, array('ok' => true, 'stats' => bot_log_stats(),
+                            'log' => bot_log_recent($limit, $bot, $lvl),
+                            'issues' => bot_issues('open', 50)));
 
     case 'clientlog_clear':
         if ($method !== 'POST') json_out(405, array('error' => 'method'));

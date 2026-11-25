@@ -99,8 +99,26 @@ if (-not $SkipBuild) {
 Step 'копирование из src в deploy-host'
 $pairs = @(
     @('js', 'js'),
-    @('app.css', 'app.css')
+    @('app.css', 'app.css'),
+    @('robots.txt', 'robots.txt'),
+    @('sitemap.xml', 'sitemap.xml')
 )
+# Текстуры планет для 3D-экранов (тур, планетарный вид): images/tex
+$texSrc = Join-Path $src 'images\tex'
+$texDst = Join-Path $site 'images\tex'
+if (Test-Path $texSrc) {
+    if (-not (Test-Path $texDst)) { New-Item -ItemType Directory -Force -Path $texDst | Out-Null }
+    Copy-Item (Join-Path $texSrc '*') $texDst -Force
+    Write-Host 'images/tex скопированы' -ForegroundColor DarkGray
+}
+
+# SEO-картинка для соцсетей: копируется отдельно, если есть
+$ogSrc = Join-Path $src 'images\og-galaktika.png'
+$ogDstDir = Join-Path $site 'images'
+if ((Test-Path $ogSrc) -and (Test-Path $ogDstDir)) {
+    Copy-Item $ogSrc (Join-Path $ogDstDir 'og-galaktika.png') -Force
+    Write-Host 'og-galaktika.png скопирован' -ForegroundColor DarkGray
+}
 foreach ($p in $pairs) {
     $from = Join-Path $src $p[0]
     $to = Join-Path $site $p[1]

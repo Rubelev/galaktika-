@@ -3,8 +3,10 @@
 //  BATTLE_CORE.PHP — живой бой: урон, гибель бортов, события.
 //  Правила движения — из motion_core.php (единое ядро), здесь только бой.
 // ============================================================================
+require_once __DIR__ . '/ship_stats.php';   // единый источник характеристик (C-08)
 
-const BATTLE_HP = array('fighter' => 40, 'light' => 30, 'hauler' => 20);
+// HP по классам движения — в lib/ship_stats.php:BATTLE_CLASS_HP (перенесено 1:1,
+// баланс не менялся). Значения: fighter 40, light 30, hauler 20.
 const BATTLE_PIRATE_HP = 200;
 const BATTLE_FLEET_DPS = 1.6;      // урон флота за минуту на живой борт
 const BATTLE_PIRATE_DPS = 22;      // урон пиратов за минуту на живого пирата
@@ -17,7 +19,7 @@ function battle_new($id, $fleetCount, $pirateCount, $arrivalMin) {
     $n = 0;
     foreach ($mix as $cls => $cnt) {
         for ($i = 0; $i < $cnt && $n < $fleetCount; $i++, $n++) {
-            $hp = BATTLE_HP[$cls];
+            $hp = battle_class_hp($cls);
             $ships[] = array('id' => 'F' . $n, 'cls' => $cls, 'hp' => $hp, 'maxHp' => $hp,
                              'alive' => true, 'killedAt' => null);
         }

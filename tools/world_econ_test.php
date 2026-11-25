@@ -43,6 +43,25 @@ chk($res, 'половина даёт меньше полного', $half['profit
 chk($res, 'деликатесы > 5 % выручки', $sphere['luxury'] > $sphere['revenue'] * 0.05, round($sphere['luxury'] / $sphere['revenue'] * 100, 1) . '%');
 chk($res, 'билеты — основа выручки', $sphere['tickets'] > $sphere['revenue'] * 0.4, round($sphere['tickets'] / $sphere['revenue'] * 100, 1) . '%');
 
+// --- H-02: маржа при 25 / 50 / 100 % заполнения ---
+// 25 % — рабочая точка (онлайн 0: fill = 0.25 + 0.05 × online), арена не должна быть в минусе.
+foreach (world_econ_list('war') as $e) {
+    $b25 = world_event_balance($e['id'], (int)round($e['capacity'] * 0.25));
+    $b50 = world_event_balance($e['id'], (int)round($e['capacity'] * 0.50));
+    $b100 = world_event_balance($e['id'], $e['capacity']);
+    chk($res, $e['id'] . ': 25 % заполнения прибыльно, маржа 10–35 %',
+        $b25['profit'] > 0 && $b25['margin'] >= 0.10 && $b25['margin'] <= 0.35,
+        $b25['profit'] . ' кр · ' . round($b25['margin'] * 100, 1) . '%');
+    chk($res, $e['id'] . ': 100 % — маржа 45–60 %',
+        $b100['margin'] >= 0.45 && $b100['margin'] <= 0.60,
+        '25/50/100: ' . round($b25['margin'] * 100, 1) . ' / '
+        . round($b50['margin'] * 100, 1) . ' / ' . round($b100['margin'] * 100, 1) . '%');
+}
+
+// контрольная точка Тарсиса: 216 540 кр при 30 % — не сдвинулась
+$t30 = world_event_balance('race_tarsis', 4500);
+chk($res, 'Тарсис не сломан: 216 540 кр при 30 %', $t30['profit'] == 216540, $t30['profit'] . ' кр');
+
 // сводка по миру
 $sum = world_econ_world_summary('war');
 chk($res, 'сводка: 5 арен', count($sum['events']) === 5, count($sum['events']));

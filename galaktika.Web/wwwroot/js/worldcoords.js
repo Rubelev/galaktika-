@@ -21,6 +21,10 @@
     // Шкала «а.е. -> пиксели». Одна на всю сцену: планеты, пояс, корабли.
     // ЕДИНАЯ ШКАЛА: см. js/scene-scale.js (без копий)
     const ORBIT_SCALE = (window.SceneScale && window.SceneScale.TABLE) || [];
+    // ГРАНИЦА (C-05): если scene-scale.js почему-то не загружен, таблица пуста.
+    // Раньше это давало TypeError на t[0][0]; теперь — документированный линейный
+    // резерв (185 px/а.е., как pxPerAuAtEarth), а не падение.
+    const LAST_RESORT_PX_PER_AU = 185;
 
     const EPOCH_MS = Date.UTC(2000, 0, 1, 12, 0, 0);   // J2000
     const DAY_MS = 86400000;
@@ -63,9 +67,14 @@
     }
 
     function orbitRadius(au) {
-        if (window.SceneScale) return window.SceneScale.orbitPx(au);
+        const a = Number(au);
+        // ГРАНИЦА (C-05): NaN/0/отрицательное расстояние → 0 px, не NaN
+        if (!isFinite(a) || a <= 0) return 0;
+        if (window.SceneScale) return window.SceneScale.orbitPx(a);
         const t = ORBIT_SCALE;
-        if (au <= t[0][0]) return t[0][1] * (au / t[0][0]);
+        // ГРАНИЦА (C-05): пустая таблица больше не роняет вызов
+        if (!t || !t.length) return a * LAST_RESORT_PX_PER_AU;
+        if (a <= t[0][0]) return t[0][1] * (a / t[0][0]);
         for (let i = 1; i < t.length; i++) {
             if (au <= t[i][0]) {
                 const a0 = t[i - 1][0], r0 = t[i - 1][1], a1 = t[i][0], r1 = t[i][1];
@@ -83,13 +92,24 @@
     function planetAt(id, timeMs) {
         const p = PLANETS[id];
         if (!p) return null;
-        const days = (timeMs - EPOCH_MS) / DAY_MS;
-        const M = ((p.epoch + (days / p.period) * 360) % 360) * Math.PI / 180;
+        const t = Number(timeMs);
+        const period = Number(p.period);
+        const a = Number(p.a);
+        // ГРАНИЦА (C-05): P=0/NaN, a=0/NaN, NaN-время — безопасная нулевая позиция
+        // (раньше P=0 давал days/0 → NaN → x=NaN, и NaN уезжал в transform).
+        if (!isFinite(t) || !isFinite(period) || period <= 0 || !isFinite(a) || a <= 0) {
+            return { id: id, x: 0, y: 0, size: p.size, au: 0, angleDeg: 0, invalid: true };
+        }
+        const days = (t - EPOCH_MS) / DAY_MS;
+        const M = ((p.epoch + (days / period) * 360) % 360) * Math.PI / 180;
         // уравнение центра (первое приближение) — эллипс, а не окружность
         const nu = M + (2 * p.e - 0.25 * p.e * p.e * p.e) * Math.sin(M)
                      + 1.25 * p.e * p.e * Math.sin(2 * M);
-        const r = p.a * (1 - p.e * p.e) / (1 + p.e * Math.cos(nu));
+        const r = a * (1 - p.e * p.e) / (1 + p.e * Math.cos(nu));
         const rPx = orbitRadius(r);
+        if (!isFinite(r) || !isFinite(rPx)) {
+            return { id: id, x: 0, y: 0, size: p.size, au: 0, angleDeg: 0, invalid: true };
+        }
         // ОРИЕНТАЦИЯ ОРБИТЫ: ω (поворот в плоскости), i (наклон, сжимаем по Y),
         // Ω (поворот узла). Раньше сцена была плоской и не соответствовала
         // элементам каталога (Меркурий i=7°, Плутон i=17°).

@@ -150,7 +150,13 @@ mon = ssh("tail -1 /var/www/u3699164/data/logs/monitor.log; tail -1 /var/www/u36
 lines = mon.strip().splitlines()
 check("мониторинг отвечает ok", lines and "ok" in lines[0], lines[0] if lines else "")
 check("последняя проверка мониторинга без сбоя", len(lines) > 1 and lines[1].strip() == "0", lines[1] if len(lines) > 1 else "")
-check("cron: 4 задания", len(lines) > 2 and lines[2].strip() == "4", lines[2] if len(lines) > 2 else "")
+# Проверяем не количество, а наличие обязательных заданий: новые
+# задачи (например, тик цивилизаций) не должны ломать аудит.
+cron_text = ssh("crontab -l 2>/dev/null") or ""
+required = ("backup.sh", "monitor.sh", "world-tick.php", "civ-tick.php")
+missing = [r for r in required if r not in cron_text]
+check("cron: обязательные задания на месте", not missing,
+      "нет: " + ", ".join(missing) if missing else "%d заданий" % len([l for l in cron_text.splitlines() if l.strip()]))
 php = ssh("php -v | head -1")
 check("PHP работает", "PHP" in php, php.strip()[:60])
 lint = ssh("php -l /var/www/u3699164/data/www/warbattleuniverse.com/api.php")

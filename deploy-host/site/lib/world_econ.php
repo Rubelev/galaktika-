@@ -12,6 +12,25 @@ const WE_FOOD_PRICE = 12.0;        // заводская еда, кр/кг (см
 const WE_DELICACY_MULT = 10.0;     // деликатес = ×10 к заводскому аналогу
 const WE_WATER_PRICE = 7.0;        // кр/л
 const WE_ENERGY_PRICE = 2.0;       // кр/кВт·ч
+const WE_TICK_COOLDOWN = 3600;     // H-01: частота событий — серверная, 1 час
+
+// H-01: пропуск события. Частоту задаёт сервер, а не клиент:
+//   • force принимается ТОЛЬКО у админа (role = admin) — для ручной проверки/отыгровки;
+//   • обычный игрок ждёт кулдаун: force от него игнорируется и он получает 429 с wait_sec.
+function world_tick_gate($lastTick, $now, $isAdmin = false, $force = false) {
+    $last = (int)$lastTick;
+    $now = (int)$now;
+    $since = $last > 0 ? max(0, $now - $last) : WE_TICK_COOLDOWN;
+    $wait = max(0, WE_TICK_COOLDOWN - $since);
+    if ($isAdmin && $force) {
+        return array('ok' => true, 'forced' => true, 'wait_sec' => 0, 'since_sec' => $since);
+    }
+    if ($wait > 0) {
+        return array('ok' => false, 'forced' => false, 'wait_sec' => $wait, 'since_sec' => $since,
+                     'error' => 'событие ещё не началось');
+    }
+    return array('ok' => true, 'forced' => false, 'wait_sec' => 0, 'since_sec' => $since);
+}
 
 function world_econ_def($id) {
     foreach ((array)$GLOBALS['WORLD_ECON'] as $e) {

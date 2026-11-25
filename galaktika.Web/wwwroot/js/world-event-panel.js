@@ -78,7 +78,7 @@
             const btn = host.querySelector('#we-run');
             btn.onclick = function () {
                 btn.disabled = true; btn.textContent = 'Идёт событие…';
-                api('world_tick', { force: true }).then(function (res) {
+                api('world_tick', {}).then(function (res) {
                     const msg = host.querySelector('#we-msg');
                     if (res.ok && res.j && res.j.ok) {
                         const bb = res.j.balance;

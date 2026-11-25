@@ -5,7 +5,24 @@
 
     var sent = 0;
 
+    // DEF-261118-01: боты и аудиты не должны попадать в client-errors.
+    // Googlebot/Lighthouse (эмуляция Nexus 5X) дают «Cannot read properties of
+    // undefined (reading '0')», засоряют статистику и ломают аудит.
+    var BOT_RE = /bot|crawler|spider|HeadlessChrome|Lighthouse|PageSpeed|Googlebot|bingbot|YandexBot|AhrefsBot|SemrushBot|python-requests|curl\/|wget/i;
+
+    function isBot() {
+        try {
+            if (BOT_RE.test(navigator.userAgent || '')) return true;
+        } catch (e) { }
+        try {
+            var q = String(location.search || '').toLowerCase();
+            if (q.indexOf('lighthouse') >= 0 || q.indexOf('pagespeed') >= 0) return true;
+        } catch (e) { }
+        return false;
+    }
+
     function report(msg, src, line, stack) {
+        if (isBot()) return;        // бот/аудит: ошибку не отправляем и не считаем
         if (sent >= 5) return;      // не заваливаем сервер
         sent++;
         try {

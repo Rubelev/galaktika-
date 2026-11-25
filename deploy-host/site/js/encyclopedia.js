@@ -13,6 +13,7 @@ const SECTIONS = [
     { id: 'factions', title: 'Расы' },
     { id: 'pirates', title: 'Пираты' },
     { id: 'artifacts', title: 'Артефакты' },
+    { id: 'collection', title: 'Коллекция' },
     { id: 'cloning', title: 'Клонирование' },
     { id: 'platform', title: 'Платформа' },
     { id: 'routes', title: 'Маршруты' },
@@ -102,6 +103,7 @@ export function open(section) {
         modal = document.getElementById('enc-modal');
     }
     modal.style.display = 'flex';
+    trophyStyles();
     render();
 }
 
@@ -123,6 +125,274 @@ function card(title, lines, icon) {
         ${lines.map(l => `<div class="enc-line">${l}</div>`).join('')}
     </div>`;
 }
+
+// ============================================================================
+//  ТРОФЕЙНАЯ КОЛЛЕКЦИЯ (UI-01)
+//  Все числа приходят с сервера: api.php?action=trophy_status / trophy_roll /
+//  trophy_craft. Клиент НИЧЕГО не считает — владение (progress.owned),
+//  осколки (shards), лимит и остаток бросков (rolls) берутся из ответа как есть.
+//  Никаких наград и кристаллов в интерфейсе нет: только предметы и осколки.
+// ============================================================================
+let TROPHY = null;            // последний ответ trophy_status (числа — серверные)
+let TROPHY_ERROR = '';
+let TROPHY_RESULT = null;     // карточка последнего броска/крафта
+let TROPHY_BUSY = false;
+
+function trophyToken() {
+    try { return localStorage.getItem('galaktika_token') || ''; } catch (e) { return ''; }
+}
+
+function esc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, ch => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+    ));
+}
+
+function trophyStyles() {
+    if (document.getElementById('enc-coll-style')) return;
+    const st = document.createElement('style');
+    st.id = 'enc-coll-style';
+    st.textContent = [
+        '.enc-coll{grid-column:1/-1}',
+        '.enc-coll-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin:2px 0 12px}',
+        '.enc-coll-big{font-size:26px;font-weight:700;color:#e8f1ff;line-height:1}',
+        '.enc-coll-big b{color:#7fe3ff}',
+        '.enc-coll-sub{font-size:12px;color:#8fa0b8}',
+        '.enc-coll-empty{border:1px dashed rgba(127,227,255,.35);border-radius:10px;padding:12px 14px;margin-bottom:12px;',
+        'background:rgba(127,227,255,.05);color:#cfe0f5;font-size:13px;line-height:1.5}',
+        '.enc-coll-set{border:1px solid rgba(127,227,255,.18);border-radius:12px;padding:12px;margin-bottom:12px;',
+        'background:rgba(255,255,255,.02);animation:encIn .45s ease both}',
+        '.enc-coll-set.complete{border-color:rgba(255,208,90,.55);box-shadow:0 0 18px rgba(255,208,90,.10)}',
+        '.enc-coll-set-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}',
+        '.enc-coll-set-name{font-size:15px;font-weight:600;color:#e8f1ff}',
+        '.enc-coll-set-prog{font-size:12px;color:#7fe3ff}',
+        '.enc-coll-src{font-size:11px;color:#7d8ea6;margin:2px 0 10px}',
+        '.enc-coll-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:8px}',
+        '.enc-coll-tile{display:flex;flex-direction:column;gap:4px;min-height:104px;padding:9px 8px;border-radius:10px;',
+        'border:1px solid rgba(127,227,255,.14);background:rgba(6,14,24,.55)}',
+        '.enc-coll-tile.owned{border-color:rgba(127,227,255,.55);background:linear-gradient(180deg,rgba(46,204,113,.10),rgba(6,14,24,.6));',
+        'box-shadow:inset 0 0 18px rgba(127,227,255,.08)}',
+        '.enc-coll-tile.empty .enc-coll-ico,.enc-coll-tile.empty .enc-coll-name,.enc-coll-tile.empty .enc-coll-rare{filter:grayscale(1);opacity:.45}',
+        '.enc-coll-ico{font-size:22px;line-height:1.1}',
+        '.enc-coll-name{font-size:11px;color:#e8f1ff;line-height:1.25}',
+        '.enc-coll-rare{font-size:10px;color:#8fa0b8}',
+        '.enc-coll-tile.owned .enc-coll-rare{color:#ffd05a}',
+        '.enc-coll-shards{margin-top:auto;font-size:10px;color:#7d8ea6}',
+        '.enc-coll-btn{font-family:inherit;font-size:11px;cursor:pointer;border-radius:7px;padding:4px 8px;',
+        'border:1px solid rgba(127,227,255,.4);background:rgba(59,130,246,.35);color:#e8f1ff}',
+        '.enc-coll-btn:hover{border-color:#7fe3ff;color:#fff}',
+        '.enc-coll-btn:disabled{opacity:.45;cursor:default}',
+        '.enc-coll-roll{margin-left:auto}',
+        '.enc-coll-res{margin:0 0 12px;border:1px solid rgba(127,227,255,.35);border-radius:10px;padding:10px 12px;',
+        'background:rgba(59,130,246,.12);font-size:12px;color:#dce8f7;line-height:1.5}',
+        '.enc-coll-res.enc-coll-wait{border-color:rgba(255,160,90,.5);background:rgba(255,160,90,.10)}',
+        '.enc-coll-note{font-size:11px;color:#8fa0b8;margin-top:4px}',
+        '@media (max-width:640px){.enc-coll-grid{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}}'
+    ].join('');
+    document.head.appendChild(st);
+}
+
+async function trophyApi(action, body) {
+    const headers = { 'Content-Type': 'application/json' };
+    const t = trophyToken();
+    if (t) headers['X-Auth-Token'] = t;
+    const res = await fetch('/api.php?action=' + action, {
+        method: body ? 'POST' : 'GET',
+        headers: headers,
+        body: body ? JSON.stringify(body) : undefined
+    });
+    let j = null;
+    try { j = await res.json(); } catch (e) { j = null; }
+    return { status: res.status, ok: res.ok, j: j };
+}
+
+// «через N ч» по wait_sec из ответа сервера (ничего не досчитываем)
+function fmtWait(sec) {
+    const s = Math.max(0, Number(sec) || 0);
+    if (s < 3600) return Math.max(1, Math.round(s / 60)) + ' мин';
+    return Math.ceil(s / 3600) + ' ч';
+}
+
+async function loadTrophy() {
+    const r = await trophyApi('trophy_status');
+    if (r.status === 401) { TROPHY = null; TROPHY_ERROR = 'нужно войти в игру'; return; }
+    if (!r.ok || !r.j || !r.j.progress) {
+        TROPHY = null;
+        TROPHY_ERROR = (r.j && r.j.error) || ('ошибка ' + r.status);
+        return;
+    }
+    TROPHY = r.j;
+    TROPHY_ERROR = '';
+}
+
+function trophyResult() {
+    const r = TROPHY_RESULT;
+    if (!r) return '';
+    if (r.kind === 'wait') {
+        return '<div class="enc-coll-res enc-coll-wait">Лимит бросков исчерпан · следующий через ' + fmtWait(r.waitSec) +
+            '<div class="enc-coll-note">' + esc(r.text || '') + '</div></div>';
+    }
+    if (r.kind === 'error') {
+        return '<div class="enc-coll-res enc-coll-wait">Не получилось: ' + esc(r.text || '') + '</div>';
+    }
+    if (r.kind === 'roll') {
+        if (r.drop && r.item) {
+            return '<div class="enc-coll-res">🎁 Выпал предмет: <b>' + esc(r.item.icon || '') + ' ' + esc(r.item.name) + '</b> · ' +
+                esc(r.item.rare || '') + (r.setComplete ? ' · <b>сет «' + esc(r.setName) + '» собран</b>' : '') +
+                '<div class="enc-coll-note">' + esc(r.item.note || '') + ' · осколков у вас: ' + r.shardsTotal + '</div></div>';
+        }
+        if (r.duplicate) {
+            return '<div class="enc-coll-res">♻️ Дубликат: +' + r.shards + ' осколок · всего осколков: ' + r.shardsTotal +
+                '<div class="enc-coll-note">сет: ' + esc(r.setName || '') + ' · pity: ' + esc(r.pity) + '</div></div>';
+        }
+        return '<div class="enc-coll-res">Пусто · осколков у вас: ' + r.shardsTotal +
+            '<div class="enc-coll-note">сет: ' + esc(r.setName || '') + ' · pity: ' + esc(r.pity) + '</div></div>';
+    }
+    if (r.kind === 'craft') {
+        return '<div class="enc-coll-res">🔧 Скрафчено: <b>' + esc((r.item && r.item.icon) || '') + ' ' +
+            esc((r.item && r.item.name) || '') + '</b> · потрачено ' + r.cost + ' осколков · осталось ' + r.shardsTotal +
+            (r.setComplete ? ' · <b>сет собран</b>' : '') + '</div>';
+    }
+    return '';
+}
+
+function trophyHtml() {
+    if (!TROPHY) {
+        return '<div class="enc-coll"><div class="enc-coll-res enc-coll-wait">Коллекция недоступна: ' +
+            esc(TROPHY_ERROR || 'нет ответа') +
+            '<div class="enc-coll-note"><button class="enc-coll-btn" onclick="encTrophyReload()">Повторить</button></div></div></div>';
+    }
+    const P = TROPHY.progress || {};
+    const owned = P.owned || {};
+    const bySet = P.by_set || {};
+    const items = P.items || [];
+    const setIds = Object.keys(bySet);
+    const setsTotal = (P.sets_total !== undefined && P.sets_total !== null) ? Number(P.sets_total) : setIds.length;
+    const setsDone = (P.sets_complete !== undefined && P.sets_complete !== null)
+        ? Number(P.sets_complete)
+        : setIds.filter(k => bySet[k] && bySet[k].complete).length;
+    const have = Number(P.have) || 0;
+    const total = Number(P.total) || items.length;
+    const shards = Number(TROPHY.shards) || 0;
+    const cost = Number(TROPHY.craft_cost) || 5;
+    const rolls = TROPHY.rolls || {};
+    const left = Number(rolls.left) || 0;
+    const limit = Number(rolls.limit) || 0;
+
+    let out = '<div class="enc-coll">';
+    out += '<div class="enc-coll-head"><div class="enc-coll-big"><b>' + have + '</b> / ' + total + '</div>' +
+        '<div class="enc-coll-sub">сетов собрано ' + setsDone + ' из ' + setsTotal +
+        ' · осколки: ' + shards + ' · бросков осталось ' + left + (limit ? ' из ' + limit : '') +
+        (left === 0 && Number(rolls.wait_sec) > 0 ? ' · следующий через ' + fmtWait(rolls.wait_sec) : '') +
+        '</div></div>';
+    if (have === 0) {
+        out += '<div class="enc-coll-empty">Коллекция пуста. Выберите сет и сделайте первый бросок: предметы падают из игры, дубликаты превращаются в осколки.</div>';
+    }
+    out += trophyResult();
+    setIds.forEach(function (setId) {
+        const s = bySet[setId] || {};
+        const setItems = items.filter(function (it) { return it.set === setId; });
+        out += '<div class="enc-coll-set' + (s.complete ? ' complete' : '') + '" data-set="' + esc(setId) + '">';
+        out += '<div class="enc-coll-set-head"><div class="enc-coll-set-name">' + esc(s.name || setId) +
+            (s.complete ? ' 🏅' : '') + '</div>' +
+            '<div class="enc-coll-set-prog">собрано ' + (Number(s.have) || 0) + '/' + (Number(s.total) || setItems.length) + '</div>' +
+            '<button class="enc-coll-btn enc-coll-roll"' + (left > 0 ? '' : ' disabled title="Лимит бросков"') +
+            ' onclick="encTrophyRoll(\'' + esc(setId) + '\')"' +
+            '>🎲 Бросок (осталось ' + left + ')</button></div>';
+        if (s.source) out += '<div class="enc-coll-src">источник: ' + esc(s.source) + '</div>';
+        out += '<div class="enc-coll-grid">';
+        setItems.forEach(function (it) {
+            const isOwned = !!Number(owned[it.id]);     // owned: 1/0 (v1273) или метка времени (v1272) — оба «есть»
+            out += '<div class="enc-coll-tile ' + (isOwned ? 'owned' : 'empty') + '" data-item="' + esc(it.id) +
+                '" title="' + esc(it.note || it.name) + '">' +
+                '<div class="enc-coll-ico">' + esc(it.icon || '◆') + '</div>' +
+                '<div class="enc-coll-name">' + esc(it.name) + '</div>' +
+                '<div class="enc-coll-rare">' + esc(it.rare || '') + '</div>';
+            if (isOwned) {
+                out += '<div class="enc-coll-shards">в коллекции</div>';
+            } else {
+                out += '<div class="enc-coll-shards">осколки ' + shards + '/' + cost + '</div>';
+                if (shards >= cost) {
+                    out += '<button class="enc-coll-btn" onclick="encTrophyCraft(\'' + esc(setId) + '\',\'' + esc(it.id) +
+                        '\')">Скрафтить · ' + cost + ' осколков</button>';
+                }
+            }
+            out += '</div>';
+        });
+        out += '</div></div>';
+    });
+    out += '</div>';
+    return out;
+}
+
+function paintCollection() {
+    if (current !== 'collection') return;
+    const body = document.getElementById('enc-body');
+    if (!body) return;
+    body.innerHTML = trophyHtml();
+}
+
+window.encTrophyReload = async function () {
+    TROPHY_ERROR = '';
+    await loadTrophy();
+    paintCollection();
+};
+
+window.encTrophyRoll = async function (setId) {
+    if (TROPHY_BUSY) return;
+    TROPHY_BUSY = true;
+    try {
+        const rid = (window.crypto && window.crypto.randomUUID)
+            ? window.crypto.randomUUID()
+            : ('r' + Date.now() + '-' + Math.random().toString(36).slice(2));
+        const r = await trophyApi('trophy_roll', { set: setId, roll_id: rid });
+        if (r.status === 429) {
+            TROPHY_RESULT = { kind: 'wait', waitSec: (r.j && r.j.wait_sec) || 0,
+                              text: (r.j && r.j.error) || 'лимит бросков на сегодня исчерпан' };
+        } else if (!r.ok || !r.j || r.j.ok === false) {
+            TROPHY_RESULT = { kind: 'error', text: (r.j && r.j.error) || ('ошибка ' + r.status) };
+        } else {
+            const j = r.j;
+            TROPHY_RESULT = {
+                kind: 'roll', drop: !!j.drop, duplicate: !!j.duplicate, item: j.item || null,
+                shards: Number(j.shards) || 0,
+                shardsTotal: (j.shards_total !== undefined) ? Number(j.shards_total)
+                                                           : (TROPHY ? Number(TROPHY.shards) || 0 : 0),
+                pity: (j.pity !== undefined) ? j.pity : '—',
+                setComplete: !!j.set_complete, setName: j.set_name || ''
+            };
+        }
+        await loadTrophy();          // сетка и все числа — снова из ответа сервера
+        paintCollection();
+    } catch (e) {
+        TROPHY_RESULT = { kind: 'error', text: 'сеть: ' + (e && e.message) };
+        paintCollection();
+    } finally {
+        TROPHY_BUSY = false;
+    }
+};
+
+window.encTrophyCraft = async function (setId, itemId) {
+    if (TROPHY_BUSY) return;
+    TROPHY_BUSY = true;
+    try {
+        // сервер ждёт {set, item}; item_id отправляем рядом для совместимости с ТЗ
+        const r = await trophyApi('trophy_craft', { set: setId, item: itemId, item_id: itemId });
+        if (!r.ok || !r.j || r.j.ok === false) {
+            TROPHY_RESULT = { kind: 'error', text: (r.j && r.j.error) || ('ошибка ' + r.status) };
+        } else {
+            TROPHY_RESULT = { kind: 'craft', item: r.j.crafted || null, cost: Number(r.j.cost) || 0,
+                              shardsTotal: Number(r.j.shards) || 0, setComplete: !!r.j.set_complete };
+        }
+        await loadTrophy();
+        paintCollection();
+    } catch (e) {
+        TROPHY_RESULT = { kind: 'error', text: 'сеть: ' + (e && e.message) };
+        paintCollection();
+    } finally {
+        TROPHY_BUSY = false;
+    }
+};
 
 async function render() {
     const tabsEl = document.getElementById('enc-tabs');
@@ -234,6 +504,10 @@ async function render() {
                 `население: ${(w[id].reduce((s, c) => s + (c.pop || 0), 0) / 1e6).toFixed(0)} млн`
             ], '🌍')
         ).join('');
+    } else if (current === 'collection') {
+        // числа коллекции — только из ответа сервера
+        if (!TROPHY && !TROPHY_ERROR) await loadTrophy();
+        html = trophyHtml();
     }
 
     body.innerHTML = html;

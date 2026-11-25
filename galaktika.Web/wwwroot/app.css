@@ -167,7 +167,7 @@ button.zoom-btn { cursor: pointer; } button.zoom-btn:hover { background: rgba(59
 .zoom-text { font-size: 12px; color: #8ab4f8; cursor: default; background: transparent; border: 1px solid rgba(255,255,255,0.1); }
 
 /* КОСМОС */
-.solar-system-container { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; width: 100vw; background: #000; position: fixed; top: 0; left: 0; z-index: 9999; cursor: grab; overflow: hidden; touch-action: none; user-select: none; perspective: 1500px; }
+.solar-system-container { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; width: 100vw; background: transparent; position: fixed; top: 0; left: 0; z-index: 9999; cursor: grab; overflow: hidden; touch-action: none; user-select: none; perspective: 1500px; }
 .solar-system { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transform-style: preserve-3d; z-index: 2; transition: transform 0.1s ease-out; }
 #starfield-canvas { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 0; pointer-events: none; }
 #asteroid-canvas { position: absolute; top: 50%; left: 50%; width: 700px; height: 700px; transform: translate(-50%, -50%); pointer-events: none; z-index: 1; opacity: 0.5; filter: blur(0.6px); }

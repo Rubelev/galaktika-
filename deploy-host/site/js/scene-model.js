@@ -17,12 +17,22 @@
     const AU_KM = 149597870.7;
     const MOON_ORBIT_SCALE = 25;   // визуальное увеличение лунных орбит
     const DEG = Math.PI / 180;
+    // ЭПОХА J2000: m0/эпоха в каталоге заданы на 2000-01-01 12:00 UT — дни
+    // считаем от неё же, а не от 1970 (иначе фаза расходится с Кеплером).
+    const EPOCH_MS = Date.UTC(2000, 0, 1, 12, 0, 0);
+    const DAY_MS = 86400000;
+
+    // Безопасная нулевая позиция для вырожденного тела (C-05).
+    function zeroOrbit() {
+        return { x: 0, y: 0, z: 0, angle: 0, r: 0, invalid: true };
+    }
 
     // ---------- 1. ОРБИТА: положение тела в плоскости системы ----------
     // Круговая модель по каталогу: a (а.е.), период (сут), эпоха (град).
     // каталог может отдавать короткие имена (a, e, i...) или длинные (orbit_a_au...)
     function norm(body) {
-        const pick = (a, b) => (body[a] !== undefined ? body[a] : body[b]);
+        const b = (body && typeof body === 'object') ? body : {};
+        const pick = (a, c) => (b[a] !== undefined ? b[a] : b[c]);
         return {
             a: Number(pick('orbit_a_au', 'a')),
             e: pick('orbit_e', 'e'),
@@ -35,21 +45,26 @@
     }
 
     function orbitPosition(body, timeMs) {
+        // ГРАНИЦА (C-05): нет тела / NaN-время → нулевая позиция, не TypeError/NaN
+        if (!body || typeof body !== 'object') return zeroOrbit();
+        const t = Number(timeMs);
+        if (!isFinite(t)) return zeroOrbit();
         // Если у тела есть элементы Кеплера (a, e, i, om, w, M0) — считаем
         // по настоящей орбите, а не по кругу. Одна функция для планеты и линии.
         const n = norm(body);
         if (global.OrbitKepler && n.e !== undefined && n.e !== null) {
             const k = global.OrbitKepler.position({
                 a: n.a, e: Number(n.e), i: n.i, om: n.om, w: n.w, M0: n.m0, P: n.P || 365.25
-            }, timeMs);
+            }, t);
+            if (!isFinite(k.x) || !isFinite(k.y) || !isFinite(k.z)) return zeroOrbit();
             // для лун масштаб орбиты свой: в реальном масштабе Луна была бы в 0,5 px
             const px = pxForAu(body.parent ? MOON_ORBIT_SCALE : 1);
             return { x: k.x * px, y: k.y * px, z: k.z * px, angle: Math.atan2(k.y, k.x), r: k.r * px, kepler: true };
         }
         const a = Number(n.a);
         const period = Number(n.P);
-        if (!isFinite(a) || !isFinite(period) || period <= 0) return { x: 0, y: 0, angle: 0 };
-        const days = timeMs / 86400000;
+        if (!isFinite(a) || a <= 0 || !isFinite(period) || period <= 0) return zeroOrbit();
+        const days = (t - EPOCH_MS) / DAY_MS;
         const angle = (Number(body.orbit_epoch_deg || body.m0) || 0) * DEG + (days / period) * Math.PI * 2;
         const r = global.SceneModel.pxForAu(a);
         return { x: Math.cos(angle) * r, y: Math.sin(angle) * r, angle: angle, r: r };
@@ -65,8 +80,11 @@
     function pxForRadius(radiusKm, kind) {
         const min = kind === 'moon' ? 2.5 : (kind === 'star' ? 24 : 5);
         const max = kind === 'star' ? 110 : (kind === 'moon' ? 14 : 38);
+        // ГРАНИЦА: NaN/0/отрицательный радиус → считаем как 1 км (без NaN в рендере)
+        const rk = Number(radiusKm);
+        const base = (isFinite(rk) && rk > 0) ? rk : 1;
         // корень сглаживает разброс: Юпитер не в 11 раз больше Земли на экране
-        const px = Math.sqrt(Math.max(1, radiusKm)) * 0.42;
+        const px = Math.sqrt(base) * 0.42;
         return Math.max(min, Math.min(max, px));
     }
 
@@ -139,6 +157,7 @@
     // Шаг 14 px гарантированно больше зоны клика (7–9 px), поэтому
     // кольца соседних лун не перекрываются.
     function moonOrbitPx(body, byId) {
+        if (!body || typeof body !== 'object') return 24;
         let rank = 0;
         if (byId) {
             for (const id in byId) {
@@ -151,6 +170,10 @@
     }
 
     function orbitFrame(body, timeMs, byId) {
+        // ГРАНИЦА (C-05): нет тела — пустой кадр, не TypeError
+        if (!body || typeof body !== 'object') {
+            return { pos: { x: 0, y: 0 }, path: null, r: 0, off: { x: 0, y: 0 }, invalid: true };
+        }
         const n = norm(body);
         const pos = orbitPosition(body, timeMs);
         let path = null;
@@ -164,7 +187,8 @@
         }
         // смещение родителя — ОДНО и для позиции, и для линии
         let off = { x: 0, y: 0 };
-        if (body.parent && byId && byId[body.parent]) {
+        const hasParent = !!(body.parent && byId && byId[body.parent]);
+        if (hasParent) {
             const parent = byId[body.parent];
             const pp = orbitPosition(parent, timeMs);
             // КЛЮЧЕВОЕ: родитель нарисован по логарифмической шкале,
@@ -173,6 +197,13 @@
             off = { x: pp.x * pk, y: pp.y * pk };
         }
         if (body.parent) {
+            if (!hasParent) {
+                // ГРАНИЦА (C-05): родителя нет в кадре — луна остаётся в своей
+                // вычисленной точке (не «кольцо у центра»), линия не рисуется
+                const kk = compressR(n.a);
+                return { pos: { x: pos.x * kk, y: pos.y * kk }, path: null,
+                         r: pos.r * kk, off: off, parentMissing: true };
+            }
             // луна: сохраняем УГОЛ, но ставим на видимое кольцо
             const L = Math.hypot(pos.x, pos.y) || 1;
             const R = moonOrbitPx(body, byId);
@@ -195,8 +226,10 @@
         // единое ядро: тело может вращаться вокруг родителя (луна — вокруг планеты),
         // корабли-агенты берут физику из класса (ship_class)
         const byId = {};
-        (bodies || []).forEach(function (b) { byId[b.id] = b; });
+        (bodies || []).forEach(function (b) { if (b && typeof b === 'object' && b.id) byId[b.id] = b; });
         (bodies || []).forEach(function (b) {
+            // ГРАНИЦА (C-05): null/мусор в списке тел не роняет весь кадр
+            if (!b || typeof b !== 'object') return;
             const kind = b.kind || (b.type_id && b.type_id.indexOf('moon') === 0 ? 'moon' : 'planet');
             let pos = orbitPosition(b, timeMs);
             // если есть родитель — прибавляем его позицию (луна вокруг планеты)
@@ -205,6 +238,7 @@
                 pos = { x: pos.x + pp.x, y: pos.y + pp.y, z: (pos.z || 0) + (pp.z || 0),
                         angle: pos.angle, r: Math.hypot(pos.x, pos.y), kepler: pos.kepler || pp.kepler };
             }
+            if (!isFinite(pos.x) || !isFinite(pos.y)) pos = zeroOrbit();
             const p = project(pos.x, pos.y, camera);
             const r = pxForRadius(Number(b.radius_km) || 100, kind);
             out.push({

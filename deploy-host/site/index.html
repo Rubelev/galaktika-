@@ -1,12 +1,46 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta name="app-build" content="202611031013">
+    <meta name="app-build" content="202611221350">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <!-- Автор и правообладатель: Галактика (см. репозиторий проекта). -->
 <meta name="author" content="Галактика" />
     <meta name="copyright" content="Галактика, 2026" />
+    <title>Галактика — браузерная 3D-стратегия про Солнечную систему</title>
+    <meta name="description" content="Галактика — бесплатная браузерная космическая стратегия: настоящая Солнечная система в 3D, колонии, заводы еды, арены Вармира, гонки Тарсиса. Играть онлайн без установки." />
+    <meta name="keywords" content="космическая стратегия, браузерная игра космос, 3d космос онлайн, играть в космос, колонии, экономическая стратегия, галактика" />
+    <link rel="canonical" href="https://warbattleuniverse.com/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Галактика" />
+    <meta property="og:locale" content="ru_RU" />
+    <meta property="og:title" content="Галактика — Солнечная система в 3D" />
+    <meta property="og:description" content="Бесплатная браузерная космическая стратегия: планеты, колонии, заводы еды, арены и гонки. Играть онлайн без установки." />
+    <meta property="og:url" content="https://warbattleuniverse.com/" />
+    <meta property="og:image" content="https://warbattleuniverse.com/images/og-galaktika.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Галактика — Солнечная система в 3D" />
+    <meta name="twitter:description" content="Бесплатная браузерная космическая стратегия. Играть онлайн без установки." />
+    <meta name="twitter:image" content="https://warbattleuniverse.com/images/og-galaktika.png" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "VideoGame",
+      "name": "Галактика",
+      "url": "https://warbattleuniverse.com/",
+      "image": "https://warbattleuniverse.com/images/og-galaktika.png",
+      "description": "Браузерная 3D-стратегия про Солнечную систему: колонии, заводы еды, арены Вармира, гонки Тарсиса.",
+      "genre": ["Strategy", "Simulation", "Space"],
+      "gamePlatform": ["Web browser"],
+      "applicationCategory": "Game",
+      "operatingSystem": "Any",
+      "inLanguage": "ru",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "RUB" },
+      "publisher": { "@type": "Organization", "name": "Галактика" }
+    }
+    </script>
     <base href="/" />
 <script>
 // Страховка: если скрипты не загрузились (кеш, блокировщик, старый браузер) — показываем понятное сообщение
@@ -37,9 +71,8 @@
 })();
 </script>
 
-    <title>Солнечная система</title>
     <link rel="icon" href="favicon.png" />
-    <link rel="stylesheet" href="app.css?v=1268" />
+    <link rel="stylesheet" href="app.css?v=1298" />
     <script>
         // Редирект на https: Apache за nginx не видит протокол, поэтому делаем на клиенте.
         // Только для домена с валидным сертификатом — у .store его пока нет.
@@ -163,12 +196,14 @@
             </article>
         </main>
     </div>
-    <script src="js/lore.js?v=5"></script>
-    <script src="js/errlog.js?v=4"></script>
+        <script src="js/backdrops.js?v=1"></script>
+    <script src="js/nebula.js?v=1"></script>
+    <script src="js/lore.js?v=3"></script>
+    <script src="js/errlog.js?v=5"></script>
     <script src="js/mobile.js?v=1"></script>
     <script src="js/blocks3d.js?v=3"></script>
     <script src="js/plans.js?v=1"></script>
-    <script src="js/planetview.js?v=10"></script>
+    <script src="js/planetview.js?v=11"></script>
     <script src="js/descent.js?v=6"></script>
     <script src="js/design3d.js?v=1"></script>
     <script src="js/cargo3d.js?v=1"></script>
@@ -209,7 +244,7 @@
     <script src="js/orbit-kepler.js?v=5"></script>
     <script src="js/scene-scale.js?v=5"></script>
     <script src="js/casino-panel.js?v=1"></script>
-    <script src="js/world-event-panel.js?v=1"></script>
+    <script src="js/world-event-panel.js?v=2"></script>
     <script src="js/food-panel.js?v=1"></script>
     <script src="js/food-factory.js?v=1"></script>
     <script src="js/food.js?v=1"></script>
@@ -220,20 +255,17 @@
     <script src="js/catalog-render.js?v=5"></script>
     <script src="js/quest-station.js?v=2"></script>
     <script src="js/jitter-probe.js?v=1"></script>
+    <script src="js/world-tour.js?v=1"></script>
     <script src="js/station-tour.js?v=1"></script>
     <script src="js/ship-card.js?v=1"></script>
-    <script src="js/players-online.js?v=1"></script>
+    <script src="js/players-online.js?v=2"></script>
     <script src="js/build-sync.js?v=6"></script>
     <script src="js/event-sandbox.js?v=3"></script>
-    <script src="js/solar.js?v=1268"></script>
-    <script src="js/tooltip.js?v=1"></script>
-    <script src="js/settings.js?v=2"></script>
-    <script src="js/mentor.js?v=4"></script>
-    <script src="js/reactor.js?v=4"></script>
+    <script src="js/solar.js?v=1298"></script>
     <script src="js/payments.js?v=3"></script>
     <script src="js/colony.js?v=15"></script>
     <script src="js/ranks.js?v=2"></script>
-    <script src="js/market.js?v=4"></script>
+    <script src="js/market.js?v=3"></script>
     <script src="js/chat.js?v=2"></script>
     <script src="js/build.js?v=4"></script>
     <script src="js/abandoned.js?v=2"></script>
@@ -245,5 +277,9 @@
     <script src="js/mega.js?v=1"></script>
     <script src="js/social.js?v=2"></script>
     <script src="js/lang.js?v=3"></script>
+    <script src="js/settings.js?v=2"></script>
+    <script src="js/mentor.js?v=4"></script>
+    <script src="js/reactor.js?v=4"></script>
+    <script src="js/casino-vegas.js?v=1"></script>
 </body>
 </html>

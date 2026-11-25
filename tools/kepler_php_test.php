@@ -1,6 +1,9 @@
 <?php
 // Сверка PHP-Кеплера с эталоном JS
-require '/var/www/u3699164/data/www/warbattleuniverse.com/lib/motion_core.php';
+// По умолчанию — выложенный на сервере модуль; MOTION_CORE позволяет прогнать
+// тест по ещё не опубликованной копии (деплой делает владелец задачи).
+$lib = getenv('MOTION_CORE');
+require $lib ? $lib : '/var/www/u3699164/data/www/warbattleuniverse.com/lib/motion_core.php';
 $fx = json_decode(file_get_contents($argv[1]), true);
 $checked = 0; $mismatch = 0; $worst = 0.0;
 foreach ($fx['orbits'] as $i => $o) {

@@ -3934,7 +3934,8 @@ window.openEngineBlueprint = (type) => {
 
 // Энциклопедия: отдельный модуль, разделы и карточки с анимацией.
 window.openEncyclopedia = (section) => {
-    import('/js/encyclopedia.js')
+    // ?v= обязателен: без него браузер берёт старый модуль из кеша после деплоя
+    import('/js/encyclopedia.js?v=2')
         .then(m => m.open(section))
         .catch(e => { console.warn('enc:', e); notify('Энциклопедия недоступна'); });
 };
@@ -4517,15 +4518,49 @@ window.switchSystem = (id) => {
 const STAR_FIELD = 3000;
 const STAR_COUNT = 1800;
 const starCanvas = document.getElementById('starfield-canvas');
-const starCtx = starCanvas ? starCanvas.getContext('2d') : null;
+// DEF-261122-01: getContext('2d') может вернуть null (2D недоступен/контекст занят)
+// или объект без части API (расширения-«защитники canvas», эмуляция). Проверяем
+// базовый API сразу и дальше работаем только с настоящим 2D-контекстом.
+const starCtxRaw = (starCanvas && typeof starCanvas.getContext === 'function') ? starCanvas.getContext('2d') : null;
+const starCtx = (starCtxRaw && typeof starCtxRaw.fill === 'function' &&
+    (typeof starCtxRaw.arc === 'function' || typeof starCtxRaw.fillRect === 'function')) ? starCtxRaw : null;
 if (starCanvas) { starCanvas.width = STAR_FIELD; starCanvas.height = STAR_FIELD; }
 const stars = []; const nebulas = [ { x: 1750, y: 1650, r: 200, color: 'rgba(255, 100, 100, 0.15)' }, { x: 1100, y: 1300, r: 300, color: 'rgba(100, 100, 255, 0.15)' } ];
 function initStars() { if (stars.length > 0) return; for (let i = 0; i < STAR_COUNT; i++) { stars.push({ x: Math.random() * STAR_FIELD, y: Math.random() * STAR_FIELD, r: Math.random() * 2.5 + 0.5, alpha: Math.random() * 0.8 + 0.2, color: Math.random() < 0.2 ? '#aaccff' : (Math.random() < 0.1 ? '#ffccaa' : '#ffffff') }); } }
 function drawStars() {
-    if (!starCtx) return; starCtx.clearRect(0, 0, STAR_FIELD, STAR_FIELD);
-    nebulas.forEach(n => { const gradient = starCtx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r); gradient.addColorStop(0, n.color); gradient.addColorStop(1, 'transparent'); starCtx.fillStyle = gradient; starCtx.beginPath(); starCtx.arc(n.x, n.y, n.r, 0, Math.PI * 2); starCtx.fill(); });
-    stars.forEach(s => { starCtx.beginPath(); starCtx.arc(s.x, s.y, s.r, 0, Math.PI * 2); starCtx.fillStyle = s.color; starCtx.globalAlpha = s.alpha; starCtx.fill(); });
-    starCtx.globalAlpha = 1.0;
+    if (!starCtx) return;       // нет 2D-контекста — тихо выходим, интерфейс не ломаем
+    const canGrad = typeof starCtx.createRadialGradient === 'function';
+    if (typeof starCtx.clearRect === 'function') starCtx.clearRect(0, 0, STAR_FIELD, STAR_FIELD);
+    // Туманности: с градиентом — как раньше; без него — плоское пятно (визуал
+    // там, где градиент работает, не меняется).
+    nebulas.forEach(n => {
+        try {
+            if (typeof starCtx.arc !== 'function') return;   // контекст умеет только прямоугольники
+            if (canGrad) {
+                const gradient = starCtx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
+                gradient.addColorStop(0, n.color);
+                gradient.addColorStop(1, 'transparent');
+                starCtx.fillStyle = gradient;
+            } else {
+                starCtx.fillStyle = n.color;
+            }
+            if (typeof starCtx.beginPath === 'function') starCtx.beginPath();
+            starCtx.arc(n.x, n.y, n.r, 0, Math.PI * 2); starCtx.fill();
+        } catch (e) { }
+    });
+    // Звёзды: arc, а если контекст умеет только прямоугольники — fillRect.
+    stars.forEach(s => {
+        try {
+            if (typeof starCtx.arc === 'function') {
+                if (typeof starCtx.beginPath === 'function') starCtx.beginPath();
+                starCtx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+            } else {
+                starCtx.fillRect(s.x, s.y, s.r * 2, s.r * 2);
+            }
+            starCtx.fillStyle = s.color; starCtx.globalAlpha = s.alpha; starCtx.fill();
+        } catch (e) { }
+    });
+    try { starCtx.globalAlpha = 1.0; } catch (e) { }
 }
 initStars();
 
@@ -4899,7 +4934,8 @@ document.addEventListener('click', (e) => {
         } else if (shipEl._fleet) {
             // КАРТОЧКА КОНКРЕТНОГО БОРТА: раньше открывалось общее окно флота
             // «Космический флот», и по клику нельзя было понять, какой борт выбран.
-            showShipCard(shipEl._fleet);
+            // через window: функция может быть объявлена в другой области видимости
+            window.showShipCard(shipEl._fleet);
         }
         return;
     }
@@ -8568,6 +8604,44 @@ function ensureFleetTip() {
     return tip;
 }
 
+// КАРТОЧКА ОДНОГО БОРТА (DEF-261116-01).
+// Объявлена на верхнем уровне файла и явно выставлена в window: раньше лежала
+// ВНУТРИ updateFleetDots() после раннего return, поэтому обработчик двойного
+// клика по маркеру (createFleetClick-блок выше) её не видел и падал с
+// «Uncaught ReferenceError: showShipCard is not defined».
+function showShipCard(f) {
+    if (!f) return;
+    let card = document.getElementById('ship-card');
+    if (!card) {
+        card = document.createElement('div');
+        card.id = 'ship-card';
+        card.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:100006;max-width:320px;' +
+            'padding:12px 14px;border-radius:12px;background:rgba(10,16,26,.96);' +
+            'border:1px solid rgba(143,214,255,.35);color:#e8eef8;font:13px/1.5 system-ui,sans-serif;' +
+            'box-shadow:0 12px 30px rgba(0,0,0,.5)';
+        document.body.appendChild(card);
+        document.addEventListener('keydown', function (e) {
+            if (e.code === 'Escape') { var c = document.getElementById('ship-card'); if (c) c.remove(); }
+        });
+    }
+    var title = f.label || f.kind || 'борт';
+    var rows = [];
+    if (f.kind) rows.push('тип: ' + f.kind);
+    if (f.hours) rows.push('в пути: ' + Number(f.hours).toFixed(1) + ' ч');
+    if (f.distKm) rows.push('дистанция: ' + Math.round(f.distKm).toLocaleString('ru-RU') + ' км');
+    if (f.art) rows.push('класс: ' + f.art);
+    card.innerHTML = '<button id="ship-card-close" style="float:right;background:none;border:0;color:#9fb2c6;' +
+        'font-size:16px;cursor:pointer">×</button>' +
+        '<div style="color:#8fd6ff;font-weight:700;font-size:14px">' + title + '</div>' +
+        '<div style="opacity:.85;font-size:12px;margin-top:6px">' + rows.join('<br>') + '</div>';
+    var b = card.querySelector('#ship-card-close');
+    if (b) b.onclick = function () { card.remove(); };
+    document.title = 'SHIP ' + title;
+}
+// Явная глобальная ссылка: вызовы из других областей видимости не зависят от
+// порядка объявления и от того, какая функция их зарегистрировала.
+window.showShipCard = showShipCard;
+
 function updateFleetDots() {
     // Старые маркеры флотов рисовались в нормализованных координатах и висели
     // вне системы. Теперь торговцев ведёт updateTradeTraffic по планетам.
@@ -8638,39 +8712,9 @@ function updateFleetDots() {
         if (!best || bestD > 16) return;
         ev.stopPropagation();
         ev.preventDefault();
-        showShipCard(best._fleet || { label: best.title || 'борт' });
+        window.showShipCard(best._fleet || { label: best.title || 'борт' });
     }, true);
 })();
-
-function showShipCard(f) {
-    if (!f) return;
-    let card = document.getElementById('ship-card');
-    if (!card) {
-        card = document.createElement('div');
-        card.id = 'ship-card';
-        card.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:100006;max-width:320px;' +
-            'padding:12px 14px;border-radius:12px;background:rgba(10,16,26,.96);' +
-            'border:1px solid rgba(143,214,255,.35);color:#e8eef8;font:13px/1.5 system-ui,sans-serif;' +
-            'box-shadow:0 12px 30px rgba(0,0,0,.5)';
-        document.body.appendChild(card);
-        document.addEventListener('keydown', function (e) {
-            if (e.code === 'Escape') { var c = document.getElementById('ship-card'); if (c) c.remove(); }
-        });
-    }
-    var title = f.label || f.kind || 'борт';
-    var rows = [];
-    if (f.kind) rows.push('тип: ' + f.kind);
-    if (f.hours) rows.push('в пути: ' + Number(f.hours).toFixed(1) + ' ч');
-    if (f.distKm) rows.push('дистанция: ' + Math.round(f.distKm).toLocaleString('ru-RU') + ' км');
-    if (f.art) rows.push('класс: ' + f.art);
-    card.innerHTML = '<button id="ship-card-close" style="float:right;background:none;border:0;color:#9fb2c6;' +
-        'font-size:16px;cursor:pointer">×</button>' +
-        '<div style="color:#8fd6ff;font-weight:700;font-size:14px">' + title + '</div>' +
-        '<div style="opacity:.85;font-size:12px;margin-top:6px">' + rows.join('<br>') + '</div>';
-    var b = card.querySelector('#ship-card-close');
-    if (b) b.onclick = function () { card.remove(); };
-    document.title = 'SHIP ' + title;
-}
 
 // тонкие линии маршрутов: борт видно на своей трассе, а не «в пустоте»
     if (fleetsModule && typeof fleetsModule.routeLines === 'function' && !fleetRouteLayer) {

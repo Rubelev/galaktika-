@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /api.php
+Disallow: /api/
+Disallow: /reports/
+Disallow: /*?shot=
+Disallow: /*?onb=
+
+Sitemap: https://warbattleuniverse.com/sitemap.xml

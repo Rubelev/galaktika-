@@ -96,7 +96,22 @@
     function ping() {
         if (!token()) return;
         const pos = ownPos();
-        api('presence_ping', { x: pos.x, y: pos.y, system: 'sol' })
+        // Система: если открыт системный рантайм — берём его, иначе параметр ?system=, иначе sol.
+        // Раньше здесь всегда был литерал 'sol' — из-за этого метрика по системам врала.
+        const sys = (function () {
+            try {
+                if (window.SystemRuntime && typeof window.SystemRuntime.currentId === 'function') {
+                    const id = window.SystemRuntime.currentId();
+                    if (id) return id;
+                }
+            } catch (e) { }
+            try {
+                const q = new URLSearchParams(location.search).get('system');
+                if (q) return q;
+            } catch (e) { }
+            return 'sol';
+        })();
+        api('presence_ping', { x: pos.x, y: pos.y, system: sys })
             .then(function (r) {
                 lastPlayers = (r && r.players) || [];
                 render(lastPlayers);
