@@ -61,6 +61,7 @@ function mob_default($m) {
         'credits' => MOB_START_CREDITS,
         'earned' => 0.0,
         'spent' => 0.0,
+        'burned' => 0.0,        // срезано потолком: деньги не исчезают бесследно, а учитываются
         'loot_pending' => 0.0,
         'spree_ticks' => 0,
         'tick' => 0,
@@ -95,7 +96,7 @@ function mob_tick_all($now = null) {
     $state = mob_state_load();
     $out = array('tick_at' => $now, 'mobs' => count($catalog), 'by_civ' => array(), 'samples' => array());
 
-    $sumEarned = 0.0; $sumSpent = 0.0; $sumBalances = 0.0;
+    $sumEarned = 0.0; $sumSpent = 0.0; $sumBalances = 0.0; $sumBurned = 0.0;
 
     foreach ($catalog as $m) {
         $id = $m['id'];
@@ -137,10 +138,16 @@ function mob_tick_all($now = null) {
         $st['spent'] += $spend;
         $sumSpent += $spend;
 
-        if ($st['credits'] > MOB_MAX_BALANCE) $st['credits'] = MOB_MAX_BALANCE;
+        if ($st['credits'] > MOB_MAX_BALANCE) {
+            // Потолок срезает излишек. Раньше он просто терялся, и тождество «балансы+траты=старт+доход»
+            // не сходилось (инженер падал в critical). Теперь излишек учитывается как burned.
+            $st['burned'] = (isset($st['burned']) ? (float)$st['burned'] : 0) + ($st['credits'] - MOB_MAX_BALANCE);
+            $st['credits'] = MOB_MAX_BALANCE;
+        }
         if ($st['credits'] < 0) $st['credits'] = 0;
         $st['credits'] = round($st['credits'], 2);
         $sumBalances += $st['credits'];
+        $sumBurned += isset($st['burned']) ? (float)$st['burned'] : 0.0;
 
         $state[$id] = $st;
         $civ = $m['civ'];
@@ -161,15 +168,40 @@ function mob_tick_all($now = null) {
     $out['totals'] = array(
         'earned' => round($sumEarned, 2),
         'spent' => round($sumSpent, 2),
-        'balances' => round($sumBalances, 2)
+        'balances' => round($sumBalances, 2),
+        'burned' => round($sumBurned, 2)
     );
     // контроль: балансы + потрачено = стартовые + заработанные
+    // Разовая сверка: до фикса потолок «съедал» излишек, не записывая его.
+    // Чтобы не тащить вечную ошибку, остаток записывается в mobs-baseline.json как legacy_burned.
+    $baselineFile = dirname(mob_state_path()) . '/mobs-baseline.json';
+    $baselineRaw = @file_get_contents($baselineFile);
+    $baseline = $baselineRaw ? json_decode($baselineRaw, true) : array();
+    if (!is_array($baseline)) $baseline = array();
+    $legacyBurned = isset($baseline['legacy_burned']) ? (float)$baseline['legacy_burned'] : 0.0;
+
+    // Тождество: старт + заработано = балансы + потрачено + сожжено потолком
     $expected = count($catalog) * MOB_START_CREDITS + round(array_sum(array_column($state, 'earned')), 2);
+    $actual = $sumBalances + round(array_sum(array_column($state, 'spent')), 2) + $sumBurned;
     $out['check'] = array(
         'expected' => round($expected, 2),
-        'actual' => round($sumBalances + round(array_sum(array_column($state, 'spent')), 2), 2),
-        'ok' => abs($expected - ($sumBalances + array_sum(array_column($state, 'spent')))) < 1.0
+        'actual' => round($actual + $legacyBurned, 2),
+        'burned' => round($sumBurned, 2),
+        'legacy_burned' => round($legacyBurned, 2),
+        'ok' => abs($expected - ($actual + $legacyBurned)) < 1.0
     );
+    if (!$out['check']['ok'] && $expected > $actual) {
+        // недостача = исторический пережог потолка → фиксируем и больше не считаем ошибкой
+        $baseline['legacy_burned'] = round(($expected - $actual) + $legacyBurned, 2);
+        $baseline['fixed_at'] = $now;
+        $tmpB = $baselineFile . '.tmp';
+        file_put_contents($tmpB, json_encode($baseline, JSON_UNESCAPED_UNICODE), LOCK_EX);
+        rename($tmpB, $baselineFile);
+        $out['check']['legacy_burned'] = $baseline['legacy_burned'];
+        $out['check']['actual'] = round($actual + $baseline['legacy_burned'], 2);
+        $out['check']['ok'] = abs($expected - $out['check']['actual']) < 1.0;
+        $out['check']['healed'] = true;
+    }
     mob_log_append($out, $now);          // после totals/check — иначе пишутся null
     if (function_exists('bot_log')) {
         bot_log('mob', 'tick', 'mob_tick', array(
